@@ -49,7 +49,7 @@ Ensure you have the following installed on your system:
     ```
 
 3.  **Set up the Backend:**
-    Navigate to the `backend` directory and ensure Go modules are tidy (this might download dependencies defined in `go.mod`):
+    Navigate to the `backend` directory and ensure Go modules are tidy :
     ```bash
     cd backend
     go mod tidy
@@ -84,9 +84,8 @@ If this is your first time running the application or if you need to reset the d
     ```bash
     cd backend
     ```
-2.  **[TODO: Add command to start the Go backend server here]**
-    For example, if you have a `main.go` that starts the server, it might be `go run main.go` or simply `./your-compiled-backend-app`.
-3.  The backend server should now be running (typically on a port like `localhost:8080` or similar - please specify).
+
+
 
 ### 3. Start the Frontend Server
 
@@ -99,5 +98,3 @@ If this is your first time running the application or if you need to reset the d
     npm run dev
     ```
 3.  The frontend application will typically be available at `http://localhost:5173` (or another port specified by SvelteKit).
-
-Once both the backend and frontend servers are running, you should be able to access the Procurement System application in your web browser via the frontend's URL.
