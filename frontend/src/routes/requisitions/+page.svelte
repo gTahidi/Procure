@@ -11,13 +11,67 @@
 		</a>
 	</div>
 
-	<div class="bg-white shadow-md rounded-lg p-6">
-		<p class="text-gray-700">
-			Requisition list will be displayed here. This will include a table with columns like ID, Requester, Type, Status, and Creation Date. 
-			Users will be able to click on a requisition to view its details or initiate actions based on their role and the requisition's status.
-		</p>
-		<p class="mt-4 text-sm text-gray-500">
-			(Placeholder content - actual data and table component to be implemented)
-		</p>
+	<div class="bg-white shadow-md rounded-lg overflow-x-auto">
+		<table class="min-w-full divide-y divide-gray-200">
+			<thead class="bg-gray-50">
+				<tr>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Requester</th>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created On</th>
+					<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+				</tr>
+			</thead>
+			<tbody class="bg-white divide-y divide-gray-200">
+				{#if filteredRequisitions.length > 0}
+					{#each filteredRequisitions as req (req.id)}
+						<tr>
+							<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-indigo-600 hover:text-indigo-900">
+								<a href={req.detailLink}>{req.id}</a>
+							</td>
+							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{req.title}</td>
+							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.requester}</td>
+							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.type}</td>
+							<td class="px-6 py-4 whitespace-nowrap text-sm">
+								<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+									{req.status === 'Approved' ? 'bg-green-100 text-green-800' : 
+									req.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' : 
+									req.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
+									'bg-gray-100 text-gray-800'}">
+									{req.status}
+								</span>
+							</td>
+							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.creationDate}</td>
+							<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+								<a href={req.detailLink} class="text-indigo-600 hover:text-indigo-900">View</a>
+								<!-- Add other actions like Edit/Delete based on status/permissions later -->
+							</td>
+						</tr>
+					{/each}
+				{:else}
+					<tr>
+						<td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
+							No requisitions found.
+						</td>
+					</tr>
+				{/if}
+			</tbody>
+		</table>
 	</div>
 </div>
+
+<script lang="ts">
+	// Mock data for requisitions
+	const mockRequisitions = [
+		{ id: 'REQ-001', title: 'Office Supplies Replenishment', requester: 'Alice Wonderland', type: 'Operational', status: 'Pending Approval', creationDate: '2024-05-10', detailLink: '/requisitions/REQ-001' },
+		{ id: 'REQ-002', title: 'New Laptops for Design Team', requester: 'Bob The Builder', type: 'Capital', status: 'Approved', creationDate: '2024-05-08', detailLink: '/requisitions/REQ-002' },
+		{ id: 'REQ-003', title: 'Marketing Campaign Materials', requester: 'Carol Danvers', type: 'Project', status: 'Draft', creationDate: '2024-05-12', detailLink: '/requisitions/REQ-003' },
+		{ id: 'REQ-004', title: 'Software Subscription Renewal', requester: 'David Copperfield', type: 'Service', status: 'Rejected', creationDate: '2024-05-07', detailLink: '/requisitions/REQ-004' },
+		{ id: 'REQ-005', title: 'Catering for Annual Meeting', requester: 'Eve Moneypenny', type: 'Event', status: 'Approved', creationDate: '2024-05-11', detailLink: '/requisitions/REQ-005' },
+	];
+
+	// TODO: Add search/filter logic if needed in the future
+	let filteredRequisitions = mockRequisitions;
+</script>

@@ -15,7 +15,8 @@
 	const navLinks = [
 		{ href: '/', label: 'Home', icon: '[H]' }, // Placeholder for HomeIcon
 		{ href: '/requisitions', label: 'Requisitions', icon: '[R]' }, // Placeholder for DocumentTextIcon
-		{ href: '/tenders', label: 'Tenders', icon: '[T]' } // Placeholder for DocumentTextIcon
+		{ href: '/tenders', label: 'Tenders', icon: '[T]' }, // Placeholder for DocumentTextIcon
+		{ href: '/documents', label: 'Documents', icon: '[D]' } // New link
 	];
 
 	// Reactive statement to determine if a link is active
