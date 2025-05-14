@@ -9,7 +9,7 @@ import (
 
 const DATABASE_NAME = "./procurement.db"
 
-func main() {
+func SetupDatabaseSchema() {
 	db, err := sql.Open("sqlite3", DATABASE_NAME+"?_foreign_keys=on") // Enable FK enforcement
 	if err != nil {
 		log.Fatalf("Error opening database: %v", err)

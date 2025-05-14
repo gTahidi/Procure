@@ -84,8 +84,12 @@ If this is your first time running the application or if you need to reset the d
     ```bash
     cd backend
     ```
-
-
+2.  Run the Go backend server:
+    ```bash
+    go run main.go
+    ```
+    This command assumes your main server logic is in `main.go`.
+3.  The backend server should now be running (typically on port `8080`). You should see log output in the terminal indicating it has started, e.g., "Backend server starting on port :8080...".
 
 ### 3. Start the Frontend Server
 

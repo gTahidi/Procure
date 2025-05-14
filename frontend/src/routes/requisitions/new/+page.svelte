@@ -11,12 +11,22 @@
 		urgencyLevel: 'medium', // 'low', 'medium', 'high'
 		requiredByDate: '',
 		deliveryLocation: '',
-		items: [{ description: '', quantity: 1, unitPrice: null as number | null, total: 0 as number | null }],
+		items: [
+			{
+				description: '',
+				quantity: 1,
+				unit: 'unit',
+				unitPrice: null as number | null,
+				total: 0 as number | null
+			}
+		],
 		notes: '',
 		status: 'draft' // Initial status
 	};
 
 	let attachedFiles: any[] = [];
+	let loading = false; // For API call feedback
+	let submissionMessage = ''; // To display success/error messages
 
 	function handleFilesAttached(event: CustomEvent) {
 		attachedFiles = [...attachedFiles, ...event.detail];
@@ -25,7 +35,10 @@
 	}
 
 	function addItem() {
-		requisition.items = [...requisition.items, { description: '', quantity: 1, unitPrice: null as number | null, total: 0 as number | null }];
+		requisition.items = [
+			...requisition.items,
+			{ description: '', quantity: 1, unit: 'unit', unitPrice: null as number | null, total: 0 as number | null }
+		];
 	}
 
 	function removeItem(index: number) {
@@ -46,9 +59,58 @@
 		requisition.estimatedCost = requisition.items.reduce((sum, item) => sum + (item.total || 0), 0);
 	}
 
-	function handleSubmit(isDraft: boolean) {
+	async function handleSubmit(isDraft: boolean) {
+		loading = true;
+		submissionMessage = '';
 		requisition.status = isDraft ? 'draft' : 'submitted_for_approval';
-		console.log('Submitting Requisition:', requisition, 'Attached Files:', attachedFiles);
+
+		// TODO: Get actual UserID, for now, hardcoding to 1
+		const userId = 1; 
+
+		const payload = {
+			user_id: userId, 
+			type: requisition.requisitionType,
+			aac: requisition.aac || null, // Send null if empty string, backend expects *string
+			status: requisition.status,
+			items: requisition.items.map(item => ({
+				description: item.description,
+				quantity: Number(item.quantity),
+				unit: item.unit,
+				estimated_unit_price: typeof item.unitPrice === 'number' ? Number(item.unitPrice) : null
+				// Other optional fields like freight_cost, etc., can be added here if needed
+			}))
+			// Fields like MaterialGroup, ExchangeRate are not in the form yet, can be added if needed.
+		};
+
+		console.log('Submitting Requisition Payload:', JSON.stringify(payload, null, 2));
+
+		try {
+			const response = await fetch('http://localhost:8080/api/requisitions', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(payload)
+			});
+
+			const responseData = await response.json();
+
+			if (response.ok) {
+				submissionMessage = `Requisition ${isDraft ? 'saved' : 'submitted'} successfully! ID: ${responseData.id}`;
+				console.log('Success:', responseData);
+				// Optionally reset form or navigate
+				// requisition = { ...initialRequisitionState }; // If you have an initial state defined
+				// items = [{...initialItemState}];
+				// attachedFiles = [];
+			} else {
+				submissionMessage = `Error: ${responseData.message || response.statusText}`;
+				console.error('Error response:', responseData);
+			}
+		} catch (error: any) {
+			submissionMessage = `Network or other error: ${error.message}`;
+			console.error('Submission error:', error);
+		}
+		loading = false;
 		// API call to save/submit requisition would go here
 		alert(`Requisition ${isDraft ? 'saved as draft' : 'submitted for approval'}. Check console.`);
 		// Potentially navigate away or reset form
@@ -127,13 +189,17 @@
 							<input type="number" min="1" id={`item_qty_${i}`} bind:value={item.quantity} on:input={() => calculateItemTotal(item)} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
 						</div>
 						<div>
+							<label for={`item_unit_${i}`} class="block text-sm font-medium text-gray-700">Unit</label>
+							<input type="text" id={`item_unit_${i}`} bind:value={item.unit} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="e.g., pcs, kg, hour">
+						</div>
+						<div>
 							<label for={`item_unit_price_${i}`} class="block text-sm font-medium text-gray-700">Estimated Unit Price</label>
 							<input type="number" step="0.01" min="0" id={`item_unit_price_${i}`} bind:value={item.unitPrice} on:input={() => calculateItemTotal(item)} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
 						</div>
-						<div>
-							<label for={`item_total_${i}`} class="block text-sm font-medium text-gray-700">Item Total</label>
-							<input type="text" id={`item_total_${i}`} value={item.total != null ? item.total.toFixed(2) : '0.00'} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-100" readonly>
-						</div>
+					</div>
+					<div>
+						<label for={`item_total_${i}`} class="block text-sm font-medium text-gray-700">Item Total</label>
+						<input type="text" id={`item_total_${i}`} value={item.total != null ? item.total.toFixed(2) : '0.00'} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-100" readonly>
 					</div>
 					{#if requisition.items.length > 1}
 						<button type="button" on:click={() => removeItem(i)} aria-label="Remove item" class="absolute top-2 right-2 text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100">
@@ -183,4 +249,19 @@
 			</button>
 		</div>
 	</form>
+
+	{#if submissionMessage}
+		<div 
+			class="mt-4 p-4 rounded-md text-sm"
+			class:bg-green-100={submissionMessage.startsWith('Requisition')}
+			class:text-green-700={submissionMessage.startsWith('Requisition')}
+			class:bg-red-100={submissionMessage.startsWith('Error') || submissionMessage.startsWith('Network')}
+			class:text-red-700={submissionMessage.startsWith('Error') || submissionMessage.startsWith('Network')}
+			role="alert"
+			aria-live="polite"
+		>
+			{submissionMessage}
+		</div>
+	{/if}
+
 </div>
