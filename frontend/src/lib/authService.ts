@@ -1,130 +1,120 @@
 // src/lib/authService.ts
-import { createAuth0Client, type Auth0Client, type LogoutOptions, type RedirectLoginOptions, type GetTokenSilentlyOptions, type User } from '@auth0/auth0-spa-js';
-import { auth0ClientStore, isAuthenticated, user, isLoading, authError } from './store';
-import { PUBLIC_VITE_AUTH0_DOMAIN, PUBLIC_VITE_AUTH0_CLIENT_ID, PUBLIC_VITE_AUTH0_CALLBACK_URL, PUBLIC_VITE_AUTH0_AUDIENCE } from '$env/static/public';
-import { get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { request } from './services/apiService'; // Assuming apiService handles sending cookies
+import type { User, LoginCredentials } from './userService'; // User and LoginCredentials from userService
+import { getCurrentUser as fetchCurrentUser } from './userService'; // Alias to avoid conflict if any
+import { isAuthenticated, user, isLoading, authError } from './store';
 
-async function createClient(): Promise<Auth0Client> {
-  const client = await createAuth0Client({
-    domain: PUBLIC_VITE_AUTH0_DOMAIN,
-    clientId: PUBLIC_VITE_AUTH0_CLIENT_ID,
-    authorizationParams: {
-      redirect_uri: PUBLIC_VITE_AUTH0_CALLBACK_URL,
-      audience: PUBLIC_VITE_AUTH0_AUDIENCE, // For requesting token for your Go API
-    },
-  });
-  return client;
-}
-
+/**
+ * Initializes the authentication state when the app loads.
+ * Checks if a valid session exists by calling /auth/me.
+ */
 export async function initializeAuth(): Promise<void> {
-  if (!browser) return; // Ensure this runs only in the browser
+  if (!browser) return;
 
   isLoading.set(true);
+  authError.set(null);
   try {
-    const client = await createClient();
-    auth0ClientStore.set(client);
-
-    // Check for redirect callback
-    if (window.location.search.includes('code=') && window.location.search.includes('state=')) {
-      await handleRedirectCallback();
+    const currentUser = await fetchCurrentUser(); // Relies on http-only cookie being sent by browser
+    if (currentUser) {
+      user.set(currentUser);
+      isAuthenticated.set(true);
     } else {
-      // Check session on initial load if not a redirect
-      const currentlyAuthenticated = await client.isAuthenticated();
-      if (currentlyAuthenticated) {
-        const userProfile = await client.getUser();
-        isAuthenticated.set(true);
-        user.set(userProfile);
-      } else {
-        isAuthenticated.set(false);
-        user.set(null);
-      }
+      user.set(null);
+      isAuthenticated.set(false);
     }
-  } catch (e: any) {
-    console.error('AuthService Error:', e);
-    authError.set(e);
-    isAuthenticated.set(false);
+  } catch (e: unknown) {
+    console.error('AuthService InitializeAuth Error:', e);
     user.set(null);
+    isAuthenticated.set(false);
+    if (e instanceof Error) {
+      authError.set(e);
+    } else {
+      authError.set(new Error('An unknown error occurred during auth initialization.'));
+    }
   } finally {
     isLoading.set(false);
   }
 }
 
-export async function login(options?: RedirectLoginOptions): Promise<void> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for login');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return;
-  }
-  await client.loginWithRedirect(options);
-}
-
-async function handleRedirectCallback(): Promise<void> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for handleRedirectCallback');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return;
+/**
+ * Logs in the user with the given credentials.
+ * Backend sets an http-only session cookie on success and returns user data.
+ * @param credentials Email and password.
+ * @returns The user object if login is successful.
+ */
+export async function login(credentials: LoginCredentials): Promise<User> {
+  if (!browser) {
+    throw new Error('Login can only be performed in the browser');
   }
 
   isLoading.set(true);
+  authError.set(null);
   try {
-    await client.handleRedirectCallback();
-    const userProfile = await client.getUser();
+    // Backend sends user data directly in response body for /auth/login
+    const loggedInUser = await request('/auth/login', 'POST', credentials) as User;
+    
+    if (!loggedInUser || !loggedInUser.id) {
+      // This case should ideally be handled by request throwing an error for non-2xx status
+      throw new Error('Login failed: Invalid response from server.');
+    }
+    
+    user.set(loggedInUser);
     isAuthenticated.set(true);
-    user.set(userProfile);
-    authError.set(null);
-    // Remove query params from URL
-    window.history.replaceState({}, document.title, window.location.pathname);
-  } catch (e: any) {
-    console.error('Redirect callback error', e);
-    authError.set(e);
-    isAuthenticated.set(false);
+    return loggedInUser;
+  } catch (e: unknown) {
+    console.error('AuthService Login Error:', e);
     user.set(null);
+    isAuthenticated.set(false);
+    if (e instanceof Error) {
+        authError.set(e);
+        throw e; // Re-throw original error
+    } else {
+        const err = new Error('An unknown error occurred during login.');
+        authError.set(err);
+        throw err;
+    }
   } finally {
     isLoading.set(false);
   }
 }
 
-export async function logout(options?: LogoutOptions): Promise<void> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for logout');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return;
-  }
-  
-  // Ensure callback URL is defined for logout, falling back to origin
-  const logoutOptions: LogoutOptions = { ...options }; // Use LogoutOptions type
-  if (!logoutOptions.logoutParams?.returnTo) {
-    logoutOptions.logoutParams = { ...logoutOptions.logoutParams, returnTo: window.location.origin };
-  }
+/**
+ * Logs out the current user.
+ * Calls the backend /auth/logout endpoint to invalidate the session.
+ */
+export async function logout(): Promise<void> {
+  if (!browser) return;
 
-  isAuthenticated.set(false);
-  user.set(null);
-  await client.logout(logoutOptions);
+  isLoading.set(true);
+  authError.set(null);
+  try {
+    await request('/auth/logout', 'POST'); // Backend handles cookie invalidation
+  } catch (e: unknown) {
+    console.error('AuthService Logout Error:', e);
+    // Even if logout API call fails, clear frontend state as a fallback.
+    if (e instanceof Error) {
+      authError.set(e);
+    } else {
+      authError.set(new Error('An unknown error occurred during logout.'));
+    }
+    // Potentially re-throw or handle more gracefully depending on requirements
+  } finally {
+    user.set(null);
+    isAuthenticated.set(false);
+    isLoading.set(false);
+    // No need to remove 'authToken' from localStorage as we're not using it.
+  }
 }
 
-// Function to get an access token
-export async function getAccessTokenSilently(options?: Omit<GetTokenSilentlyOptions, 'detailedResponse'>): Promise<string | undefined> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for getAccessTokenSilently');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return undefined;
-  }
-  try {
-    // Ensure options don't ask for detailedResponse to match return type string
-    const token = await client.getTokenSilently(options);
-    return token;
-  } catch (e: any) {
-    console.error('Error getting token silently:', e);
-    if (e.error === 'login_required' || e.error === 'consent_required') {
-      // Consider triggering interactive login if appropriate
-      // await login({ appState: { targetUrl: window.location.pathname } });
-    }
-    authError.set(e);
-    return undefined;
-  }
+/**
+ * Checks the current authentication status from the store.
+ * Does not make an API call; reflects the last known state.
+ * @returns boolean indicating if user is currently marked as authenticated.
+ */
+export function checkAuthStatus(): boolean {
+  if (!browser) return false;
+  let currentAuthStatus = false;
+  isAuthenticated.subscribe(value => currentAuthStatus = value)(); // Get current value
+  return currentAuthStatus;
 }
