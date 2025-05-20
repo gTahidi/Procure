@@ -3,42 +3,57 @@ package main
 import (
 	"log"
 	"net/http"
-	"procurement/database"
-	"procurement/handlers"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/cors"
+
+	"procurement/database"
+	"procurement/handlers"
 )
 
 func main() {
-	log.Println("Initializing database...")
-	if err := database.InitDB(); err != nil {
+	if err := database.InitDB(); err != nil { // Initialize DB connection pool
 		log.Fatalf("FATAL: Could not initialize database: %v", err)
 	}
-	log.Println("Database initialized successfully.")
+	database.SetupDatabaseSchema() // Ensure schema is set up on startup using GORM
 
 	r := chi.NewRouter()
 
-	// Middleware
+	// CORS Middleware (assuming github.com/rs/cors)
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"}, // Add your frontend origin
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"}, // Add any other headers your frontend sends
+		AllowCredentials: true,
+		Debug:            true, // Enable for debugging CORS issues
+	})
+	r.Use(c.Handler) // Apply the CORS middleware
+
+	// Standard Chi middlewares
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger) // Logs the request path, method, duration, etc.
-	r.Use(middleware.Recoverer) // Recovers from panics and returns a 500 error
+	r.Use(middleware.Logger) // Log server requests
+	r.Use(middleware.Recoverer)
 
-	// Basic health check
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Welcome to the Procurement Backend!"))
+	// API routes group
+	r.Route("/api", func(apiRouter chi.Router) {
+		// Register user routes (e.g., /api/users/sync)
+		handlers.RegisterUserRoutes(apiRouter)
+
+		// Register requisition routes
+		apiRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
+		// Add other requisition routes here (GET, PUT, DELETE)
 	})
 
-	// API routes
-	r.Route("/api", func(r chi.Router) {
-		r.Post("/requisitions", handlers.CreateRequisitionHandler)
-		// Add other requisition routes here (GET, PUT, DELETE)
+	// Simple health check route
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Welcome to the Procurement Backend!"))
 	})
 
 	port := ":8080"
 	log.Printf("Backend server starting on port %s...", port)
 	if err := http.ListenAndServe(port, r); err != nil {
-		log.Fatalf("FATAL: Could not start server on port %s: %v", port, err)
+		log.Fatalf("Could not start server: %s\n", err)
 	}
 }

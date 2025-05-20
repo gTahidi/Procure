@@ -20,33 +20,54 @@ async function createClient(): Promise<Auth0Client> {
 export async function initializeAuth(): Promise<void> {
   if (!browser) return; // Ensure this runs only in the browser
 
-  isLoading.set(true);
-  try {
-    const client = await createClient();
-    auth0ClientStore.set(client);
+  isLoading.set(true); // Set loading at the very start
 
-    // Check for redirect callback
-    if (window.location.search.includes('code=') && window.location.search.includes('state=')) {
-      await handleRedirectCallback();
+  let client = get(auth0ClientStore);
+
+  if (!client) {
+    console.log('[authService initializeAuth] No existing client, creating new one...');
+    client = await createClient();
+    auth0ClientStore.set(client);
+    console.log('[authService initializeAuth] New Auth0 client created and stored.');
+  } else {
+    console.log('[authService initializeAuth] Using existing Auth0 client.');
+  }
+
+  // Check if this is a redirect from Auth0
+  if (window.location.search.includes('code=') && window.location.search.includes('state=')) {
+    console.log('[authService initializeAuth] Detected Auth0 redirect (code and state in URL). Calling handleRedirectCallback...');
+    // handleRedirectCallback will manage its own isLoading state and update user/isAuthenticated stores.
+    await handleRedirectCallback(); 
+    // IMPORTANT: Exit initializeAuth after handling the redirect. 
+    // isLoading.set(false) is handled by handleRedirectCallback's finally block.
+    return; 
+  }
+
+  // If not a redirect, check current authentication state
+  console.log('[authService initializeAuth] Not an Auth0 redirect. Checking current session status...');
+  try {
+    const currentlyAuthenticated = await client.isAuthenticated();
+    console.log('[authService initializeAuth] client.isAuthenticated() check result:', currentlyAuthenticated);
+    if (currentlyAuthenticated) {
+      const userProfile = await client.getUser();
+      console.log('[authService initializeAuth] User is authenticated (no redirect). Profile:', userProfile);
+      user.set(userProfile);
+      isAuthenticated.set(true);
+      authError.set(null);
     } else {
-      // Check session on initial load if not a redirect
-      const currentlyAuthenticated = await client.isAuthenticated();
-      if (currentlyAuthenticated) {
-        const userProfile = await client.getUser();
-        isAuthenticated.set(true);
-        user.set(userProfile);
-      } else {
-        isAuthenticated.set(false);
-        user.set(null);
-      }
+      console.log('[authService initializeAuth] User is NOT authenticated (no redirect).');
+      isAuthenticated.set(false);
+      user.set(null);
+      authError.set(null); // Not an error, just not logged in.
     }
   } catch (e: any) {
-    console.error('AuthService Error:', e);
+    console.error('[authService initializeAuth] Error checking/refreshing session (non-redirect):', e);
     authError.set(e);
     isAuthenticated.set(false);
     user.set(null);
   } finally {
-    isLoading.set(false);
+    isLoading.set(false); // Ensure loading is false if it's the non-redirect path
+    console.log('[authService initializeAuth] initializeAuth finished (non-redirect path). isLoading:', get(isLoading));
   }
 }
 
@@ -64,26 +85,63 @@ async function handleRedirectCallback(): Promise<void> {
   const client = get(auth0ClientStore);
   if (!client) {
     console.error('Auth0 client not initialized for handleRedirectCallback');
-    authError.set(new Error('Auth0 client not initialized.'));
+    // Ensure authError is set to trigger UI update
+    authError.set(new Error('Auth0 client not initialized.')); 
+    isAuthenticated.set(false); // Explicitly set isAuthenticated to false
+    user.set(null); // Explicitly set user to null
     return;
   }
 
   isLoading.set(true);
   try {
-    await client.handleRedirectCallback();
+    console.log('[authService] Starting client.handleRedirectCallback()...');
+    await client.handleRedirectCallback(); // Exchanges code for tokens
+    console.log('[authService] client.handleRedirectCallback() completed.');
+
+    // Get User Profile
     const userProfile = await client.getUser();
-    isAuthenticated.set(true);
-    user.set(userProfile);
-    authError.set(null);
-    // Remove query params from URL
+    console.log('[authService] client.getUser() profile:', userProfile);
+
+    // Get ID Token Claims
+    const idTokenClaims = await client.getIdTokenClaims();
+    console.log('[authService] client.getIdTokenClaims() result:', idTokenClaims);
+
+    // Attempt to get Access Token
+    let accessToken;
+    try {
+      accessToken = await client.getTokenSilently();
+      console.log('[authService] client.getTokenSilently() accessToken retrieved (details omitted for brevity).');
+      // For debugging, you could log the token itself but be careful with sharing full tokens.
+      // console.log('[authService] Access Token:', accessToken); 
+    } catch (tokenError) {
+      console.error('[authService] Error calling client.getTokenSilently():', tokenError);
+    }
+
+    if (userProfile) { // Or you could check idTokenClaims if that's more reliable for your setup
+      isAuthenticated.set(true);
+      user.set(userProfile); // Storing the profile from getUser()
+      authError.set(null);
+      console.log('[authService] User profile loaded and stores updated.');
+    } else {
+      console.error('[authService] Token exchange likely successful, but no user profile (from getUser) or no ID token claims.');
+      isAuthenticated.set(false);
+      user.set(null);
+      authError.set(new Error('Login successful, but failed to retrieve user details. Check console for token claims.'));
+    }
+    
+    // Remove query params from URL - should be safe to do even if userProfile is null
+    // as long as handleRedirectCallback itself didn't throw before this.
     window.history.replaceState({}, document.title, window.location.pathname);
+    console.log('[authService] Query params removed from URL.');
+
   } catch (e: any) {
-    console.error('Redirect callback error', e);
-    authError.set(e);
+    console.error('[authService] Error during redirect callback processing (outer try-catch):', e);
+    authError.set(e); // This is likely where "Login required" or similar Auth0 errors are caught
     isAuthenticated.set(false);
     user.set(null);
   } finally {
     isLoading.set(false);
+    console.log('[authService] handleRedirectCallback finally block. isLoading:', get(isLoading));
   }
 }
 

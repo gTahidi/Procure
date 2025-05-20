@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"procurement/database" // Module name 'procurement' then path
 	"procurement/models"
-	"time"
+	// "time" // No longer explicitly needed for CreatedAt if GORM handles it
+	"gorm.io/gorm" // Added for gorm.ErrRecordNotFound or other GORM specific needs
 )
 
 // CreateRequisitionHandler handles POST requests to create a new requisition
 func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDB()
+	db := database.GetDB() // This returns *gorm.DB
 	if db == nil {
 		log.Println("ERROR: CreateRequisitionHandler: Database not initialized")
 		http.Error(w, "Database connection not initialized", http.StatusInternalServerError)
@@ -46,87 +47,70 @@ func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-
-	// Start a transaction
-	tx, err := db.Begin()
-	if err != nil {
-		log.Printf("ERROR: CreateRequisitionHandler: Failed to start transaction: %v\n", err)
-		http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+	// Start a GORM transaction
+	tx := db.Begin()
+	if tx.Error != nil {
+		log.Printf("ERROR: CreateRequisitionHandler: Failed to start GORM transaction: %v\n", tx.Error)
+		http.Error(w, "Failed to start transaction: "+tx.Error.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Insert into Requisitions table
+	// Defer a rollback in case of panic or error.
+	// If tx.Commit() is called successfully, the rollback is a no-op.
+	defer func() {
+		if rec := recover(); rec != nil {
+			tx.Rollback()
+			// Re-panic if you want to propagate the panic after rollback
+			// panic(rec)
+			log.Printf("PANIC: CreateRequisitionHandler: Rolled back transaction due to panic: %v", rec)
+			// Ensure a response is sent if a panic occurs during HTTP handling
+			if הודעה, בסדר := rec.(string); בסדר {
+				http.Error(w, "Internal server error after panic: "+הודעה, http.StatusInternalServerError)
+			} else {
+				http.Error(w, "Internal server error after panic", http.StatusInternalServerError)
+			}
+		} else if tx.Error != nil && tx.Error != gorm.ErrRecordNotFound { // Check tx.Error from operations like Create, Save, Delete
+			// If tx.Error is set from an operation like tx.Create, and we haven't committed yet,
+			// then we should roll back.
+			// gorm.ErrRecordNotFound might be a legitimate case in some non-creation scenarios, 
+			// but for creation, any error usually means rollback.
+			log.Printf("INFO: CreateRequisitionHandler: Transaction error, rolling back: %v", tx.Error)
+			tx.Rollback() // tx.Error should have been set by a failing GORM operation
+		}
+	}()
+
+	// Set default status if not provided
 	if reqPayload.Status == "" {
 		reqPayload.Status = "pending" // Default status
 	}
-	// CreatedAt will be set by the database default or here
-	// For consistency, let's set it here, though db_init.go also defines a default.
-	// If we rely on DB default, we'd need to query it back.
-	currentTime := time.Now()
+	// GORM will handle CreatedAt and UpdatedAt automatically if fields exist in the model (e.g. via gorm.Model embedding or explicit fields)
 
-
-	result, err := tx.Exec(`
-		INSERT INTO Requisitions (user_id, type, aac, materialGroup, exchangeRate, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, reqPayload.UserID, reqPayload.Type, reqPayload.AAC, reqPayload.MaterialGroup, reqPayload.ExchangeRate, reqPayload.Status, currentTime)
-
-	if err != nil {
-		tx.Rollback()
+	// Insert Requisition using GORM
+	if err := tx.Create(&reqPayload).Error; err != nil {
+		// Rollback is handled by defer, but log and return error immediately
 		log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition: %v\n", err)
 		http.Error(w, "Failed to insert requisition: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// reqPayload.ID is now populated by GORM
 
-	requisitionID, err := result.LastInsertId()
-	if err != nil {
-		tx.Rollback()
-		log.Printf("ERROR: CreateRequisitionHandler: Failed to get last insert ID for requisition: %v\n", err)
-		http.Error(w, "Failed to get last insert ID for requisition: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	reqPayload.ID = requisitionID
-	reqPayload.CreatedAt = currentTime // Ensure response has the correct time
-
-	// Insert into RequisitionItems table
-	stmt, err := tx.Prepare(`
-		INSERT INTO RequisitionItems (requisition_id, description, quantity, unit, estimated_unit_price, freight_cost, insurance_cost, installation_cost, amr_id, value)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		tx.Rollback()
-		log.Printf("ERROR: CreateRequisitionHandler: Failed to prepare requisition item statement: %v\n", err)
-		http.Error(w, "Failed to prepare requisition item statement: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
-
+	// Insert RequisitionItems using GORM
 	for i := range reqPayload.Items {
-		item := &reqPayload.Items[i]
-		item.RequisitionID = requisitionID 
-		
-		itemResult, itemErr := stmt.Exec(
-			item.RequisitionID, item.Description, item.Quantity, item.Unit,
-			item.EstimatedUnitPrice, item.FreightCost, item.InsuranceCost,
-			item.InstallationCost, item.AmrID, item.Value,
-		)
-		if itemErr != nil {
-			tx.Rollback()
-			log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition item: %v\n", itemErr)
-			http.Error(w, "Failed to insert requisition item: "+itemErr.Error(), http.StatusInternalServerError)
+		item := &reqPayload.Items[i] // Get a pointer to the item in the slice
+		item.RequisitionID = reqPayload.ID // Set the foreign key
+
+		if err := tx.Create(item).Error; err != nil {
+			// Rollback is handled by defer, but log and return error immediately
+			log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition item (%s): %v\n", item.Description, err)
+			http.Error(w, "Failed to insert requisition item: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Get the ID of the newly inserted item and update the struct
-		itemId, idErr := itemResult.LastInsertId()
-		if idErr != nil {
-			tx.Rollback()
-			log.Printf("ERROR: CreateRequisitionHandler: Failed to get last insert ID for requisition item: %v\n", idErr)
-			http.Error(w, "Failed to get last insert ID for requisition item: "+idErr.Error(), http.StatusInternalServerError)
-			return
-		}
-		item.ID = itemId
+		// item.ID is now populated by GORM
 	}
 
-	if err := tx.Commit(); err != nil {
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		// Rollback is handled by defer if commit fails and sets tx.Error, but explicit check is good.
 		log.Printf("ERROR: CreateRequisitionHandler: Failed to commit transaction: %v\n", err)
 		http.Error(w, "Failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -134,6 +118,10 @@ func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(reqPayload) 
-	log.Printf("Requisition created successfully with ID: %d", reqPayload.ID)
+	if err := json.NewEncoder(w).Encode(reqPayload); err != nil {
+		log.Printf("ERROR: CreateRequisitionHandler: Failed to encode response: %v\n", err)
+		// The transaction is committed, but we couldn't send the response.
+		// http.Error might not work here if headers are already sent.
+	}
+	log.Printf("INFO: Requisition created successfully with ID: %d", reqPayload.ID)
 }

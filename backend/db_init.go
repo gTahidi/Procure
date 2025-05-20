@@ -25,9 +25,14 @@ func SetupDatabaseSchema() {
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('admin', 'procurement_officer', 'requester', 'supplier', 'approver', 'evaluator')),
-            department TEXT, contactNumber TEXT, isActive INTEGER DEFAULT 1 CHECK(isActive IN (0,1))
+            auth0_id TEXT UNIQUE NOT NULL,             -- Added for Auth0 integration
+            username TEXT UNIQUE NOT NULL,             -- To be populated from Auth0 name/nickname
+            email TEXT UNIQUE NOT NULL,
+            picture_url TEXT,                          -- Added to store profile picture URL
+            role TEXT NOT NULL DEFAULT 'requester' CHECK(role IN ('admin', 'procurement_officer', 'requester', 'supplier', 'approver', 'evaluator')),
+            department TEXT, 
+            contactNumber TEXT, 
+            isActive INTEGER DEFAULT 1 CHECK(isActive IN (0,1))
         );`,
 		`CREATE TABLE IF NOT EXISTS Suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, contact_person TEXT,
