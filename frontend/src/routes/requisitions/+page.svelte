@@ -25,8 +25,14 @@
 				</tr>
 			</thead>
 			<tbody class="bg-white divide-y divide-gray-200">
-				{#if filteredRequisitions.length > 0}
-					{#each filteredRequisitions as req (req.id)}
+				{#if data.error}
+					<tr>
+						<td colspan="7" class="px-6 py-12 text-center text-sm text-red-500">
+							Error loading requisitions: {data.error}
+						</td>
+					</tr>
+				{:else if data.requisitions && data.requisitions.length > 0}
+					{#each data.requisitions as req (req.id)}
 						<tr>
 							<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-indigo-600 hover:text-indigo-900">
 								<a href={req.detailLink}>{req.id}</a>
@@ -38,6 +44,7 @@
 								<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
 									{req.status === 'Approved' ? 'bg-green-100 text-green-800' : 
 									req.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' : 
+									req.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 
 									req.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
 									'bg-gray-100 text-gray-800'}">
 									{req.status}
@@ -63,15 +70,7 @@
 </div>
 
 <script lang="ts">
-	// Mock data for requisitions
-	const mockRequisitions = [
-		{ id: 'REQ-001', title: 'Office Supplies Replenishment', requester: 'Alice Wonderland', type: 'Operational', status: 'Pending Approval', creationDate: '2024-05-10', detailLink: '/requisitions/REQ-001' },
-		{ id: 'REQ-002', title: 'New Laptops for Design Team', requester: 'Bob The Builder', type: 'Capital', status: 'Approved', creationDate: '2024-05-08', detailLink: '/requisitions/REQ-002' },
-		{ id: 'REQ-003', title: 'Marketing Campaign Materials', requester: 'Carol Danvers', type: 'Project', status: 'Draft', creationDate: '2024-05-12', detailLink: '/requisitions/REQ-003' },
-		{ id: 'REQ-004', title: 'Software Subscription Renewal', requester: 'David Copperfield', type: 'Service', status: 'Rejected', creationDate: '2024-05-07', detailLink: '/requisitions/REQ-004' },
-		{ id: 'REQ-005', title: 'Catering for Annual Meeting', requester: 'Eve Moneypenny', type: 'Event', status: 'Approved', creationDate: '2024-05-11', detailLink: '/requisitions/REQ-005' },
-	];
+	import type { PageData } from './$types';
 
-	// TODO: Add search/filter logic if needed in the future
-	let filteredRequisitions = mockRequisitions;
+	export let data: PageData;
 </script>

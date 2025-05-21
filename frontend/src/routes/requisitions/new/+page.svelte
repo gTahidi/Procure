@@ -64,56 +64,71 @@
 		submissionMessage = '';
 		requisition.status = isDraft ? 'draft' : 'submitted_for_approval';
 
-		// TODO: Get actual UserID, for now, hardcoding to 1
-		const userId = 1; 
-
 		const payload = {
-			user_id: userId, 
+			user_id: 1, // Hardcoded for now, should be replaced with actual user ID
 			type: requisition.requisitionType,
-			aac: requisition.aac || null, // Send null if empty string, backend expects *string
+			aac: requisition.aac || null,
 			status: requisition.status,
 			items: requisition.items.map(item => ({
 				description: item.description,
 				quantity: Number(item.quantity),
 				unit: item.unit,
-				estimated_unit_price: typeof item.unitPrice === 'number' ? Number(item.unitPrice) : null
-				// Other optional fields like freight_cost, etc., can be added here if needed
+				estimated_unit_price: typeof item.unitPrice === 'number' ? Number(item.unitPrice) : 0,
+				freight_cost: 0,
+				insurance_cost: 0,
+				installation_cost: 0,
+				value: typeof item.unitPrice === 'number' ? Number(item.unitPrice) * item.quantity : 0
 			}))
-			// Fields like MaterialGroup, ExchangeRate are not in the form yet, can be added if needed.
 		};
-
-		console.log('Submitting Requisition Payload:', JSON.stringify(payload, null, 2));
 
 		try {
 			const response = await fetch('http://localhost:8080/api/requisitions', {
 				method: 'POST',
 				headers: {
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					'Accept': 'application/json'
 				},
 				body: JSON.stringify(payload)
 			});
 
 			const responseData = await response.json();
 
-			if (response.ok) {
-				submissionMessage = `Requisition ${isDraft ? 'saved' : 'submitted'} successfully! ID: ${responseData.id}`;
-				console.log('Success:', responseData);
-				// Optionally reset form or navigate
-				// requisition = { ...initialRequisitionState }; // If you have an initial state defined
-				// items = [{...initialItemState}];
-				// attachedFiles = [];
-			} else {
-				submissionMessage = `Error: ${responseData.message || response.statusText}`;
-				console.error('Error response:', responseData);
+			if (!response.ok) {
+				throw new Error(responseData.message || `HTTP error! status: ${response.status}`);
 			}
+
+			submissionMessage = `Requisition ${isDraft ? 'saved as draft' : 'submitted for approval'} successfully! ID: ${responseData.id}`;
+			console.log('Success:', responseData);
+
+			// Reset form on success
+			requisition = {
+				requesterId: '',
+				department: '',
+				requisitionType: 'goods',
+				aac: '',
+				estimatedCost: null,
+				description: '',
+				urgencyLevel: 'medium',
+				requiredByDate: '',
+				deliveryLocation: '',
+				items: [{
+					description: '',
+					quantity: 1,
+					unit: 'unit',
+					unitPrice: null,
+					total: 0
+				}],
+				notes: '',
+				status: 'draft'
+			};
+			attachedFiles = [];
+
 		} catch (error: any) {
-			submissionMessage = `Network or other error: ${error.message}`;
 			console.error('Submission error:', error);
+			submissionMessage = `Error: ${error.message || 'Failed to submit requisition'}`;
+		} finally {
+			loading = false;
 		}
-		loading = false;
-		// API call to save/submit requisition would go here
-		alert(`Requisition ${isDraft ? 'saved as draft' : 'submitted for approval'}. Check console.`);
-		// Potentially navigate away or reset form
 	}
 </script>
 
@@ -160,7 +175,13 @@
 				</div>
 				<div>
 					<label for="requiredByDate" class="block text-sm font-medium text-gray-700">Required By Date</label>
-					<input type="date" id="requiredByDate" bind:value={requisition.requiredByDate} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+					<input 
+						type="date" 
+						id="requiredByDate" 
+						bind:value={requisition.requiredByDate}
+						min={new Date().toISOString().split('T')[0]}
+						class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+					>
 				</div>
 			</div>
 			<div class="mt-6">

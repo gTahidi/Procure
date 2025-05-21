@@ -186,3 +186,15 @@ export async function getAccessTokenSilently(options?: Omit<GetTokenSilentlyOpti
     return undefined;
   }
 }
+
+/**
+ * Checks the current authentication status from the store.
+ * Does not make an API call; reflects the last known state.
+ * @returns boolean indicating if user is currently marked as authenticated.
+ */
+export function checkAuthStatus(): boolean {
+  if (!browser) return false;
+  let currentAuthStatus = false;
+  isAuthenticated.subscribe(value => currentAuthStatus = value)(); // Get current value
+  return currentAuthStatus;
+}
