@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { initializeAuth, logout } from '$lib/authService';
   import { user, isAuthenticated, isLoading, authError } from '$lib/store';
-  import { syncUserToDb, getCurrentUser, type User } from '$lib/userService'; 
+  import { syncUserToDb } from '$lib/userService'; 
+  import type { User as Auth0UserProfile } from '@auth0/auth0-spa-js';
   import { page } from '$app/stores';
   import { fly } from 'svelte/transition';
   import { sineInOut } from 'svelte/easing';
@@ -11,6 +12,7 @@
 
   let initialAuthDone = false;
   let sidebarOpen = true;
+  let currentUser: Auth0UserProfile | null = null;
 
   function toggleSidebar() {
     sidebarOpen = !sidebarOpen;
@@ -36,19 +38,19 @@
       await initializeAuth();
 
       // After initializeAuth, check if user is authenticated and sync to DB if needed.
-      let currentUser: User | null = null;
-      const unsubscribeUser = user.subscribe((value: User | null) => { currentUser = value; });
+      // Note: The 'currentUser' variable here is typed as Auth0UserProfile and might not yet have the role.
+      // The 'user' store ($user) will be updated by syncUserToDb with the role.
+      const unsubscribeUser = user.subscribe((value: Auth0UserProfile | null) => { currentUser = value; });
       let currentAuthStatus: boolean = false;
       const unsubscribeAuth = isAuthenticated.subscribe((value: boolean) => { currentAuthStatus = value; });
 
-      if (currentAuthStatus && currentUser) {
-        // Potentially sync user to DB if it's a fresh load/login and data might need syncing.
-        // Consider if syncUserToDb is always needed here or only after explicit login/update actions.
-        // For now, let's assume it's beneficial after a successful session resumption.
+      if (currentAuthStatus && currentUser) { // currentUser here is the basic Auth0 profile
         try {
-          // await syncUserToDb(currentUser); // Uncomment if needed
+          console.log('Layout: User is authenticated, attempting to sync to DB...');
+          await syncUserToDb(); // Call syncUserToDb without arguments
+          console.log('Layout: syncUserToDb completed. User store should now have role:', $user);
         } catch (syncError) {
-          console.error('Failed to sync user to DB on layout load:', syncError);
+          console.error('Layout: Failed to sync user to DB on layout load:', syncError);
         }
       }
       unsubscribeUser();
@@ -106,23 +108,45 @@
 
         <nav class="flex-1 mt-4 space-y-2 overflow-y-auto overflow-x-hidden">
           {#each navLinks as link}
-            <a 
-              href={link.href} 
-              class="flex items-center py-2.5 rounded-lg hover:bg-gray-700 transition-colors duration-150"
-              class:bg-gray-900={activeLink(link.href)}
-              class:px-4={sidebarOpen}
-              class:px-0={!sidebarOpen}
-              class:justify-start={sidebarOpen}
-              class:justify-center={!sidebarOpen}
-              title={link.label}
-            >
-              <span class:ml-0={!sidebarOpen} class:mr-0={!sidebarOpen} class:mx-auto={!sidebarOpen} class:ml-4={sidebarOpen}>
-                <span class="inline-block w-6 h-6 text-center">{link.icon}</span> 
-              </span>
-              {#if sidebarOpen}
-                <span class="ml-3 whitespace-nowrap" transition:fly={{ x: -20, duration: 200, delay: 50, easing: sineInOut }}>{link.label}</span>
+            {#if link.href === '/tenders' || link.href === '/documents'}
+              {#if $user?.role !== 'requester'}
+                <a 
+                  href={link.href} 
+                  class="flex items-center py-2.5 rounded-lg hover:bg-gray-700 transition-colors duration-150"
+                  class:bg-gray-900={activeLink(link.href)}
+                  class:px-4={sidebarOpen}
+                  class:px-0={!sidebarOpen}
+                  class:justify-start={sidebarOpen}
+                  class:justify-center={!sidebarOpen}
+                  title={link.label}
+                >
+                  <span class:ml-0={!sidebarOpen} class:mr-0={!sidebarOpen} class:mx-auto={!sidebarOpen} class:ml-4={sidebarOpen}>
+                    <span class="inline-block w-6 h-6 text-center">{link.icon}</span> 
+                  </span>
+                  {#if sidebarOpen}
+                    <span class="ml-3 whitespace-nowrap" transition:fly={{ x: -20, duration: 200, delay: 50, easing: sineInOut }}>{link.label}</span>
+                  {/if}
+                </a>
               {/if}
-            </a>
+            {:else} <!-- Regular links like Home and Requisitions -->
+              <a 
+                href={link.href} 
+                class="flex items-center py-2.5 rounded-lg hover:bg-gray-700 transition-colors duration-150"
+                class:bg-gray-900={activeLink(link.href)}
+                class:px-4={sidebarOpen}
+                class:px-0={!sidebarOpen}
+                class:justify-start={sidebarOpen}
+                class:justify-center={!sidebarOpen}
+                title={link.label}
+              >
+                <span class:ml-0={!sidebarOpen} class:mr-0={!sidebarOpen} class:mx-auto={!sidebarOpen} class:ml-4={sidebarOpen}>
+                  <span class="inline-block w-6 h-6 text-center">{link.icon}</span> 
+                </span>
+                {#if sidebarOpen}
+                  <span class="ml-3 whitespace-nowrap" transition:fly={{ x: -20, duration: 200, delay: 50, easing: sineInOut }}>{link.label}</span>
+                {/if}
+              </a>
+            {/if}
           {/each}
         </nav>
 

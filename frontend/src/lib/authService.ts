@@ -1,9 +1,18 @@
 // src/lib/authService.ts
-import { createAuth0Client, type Auth0Client, type LogoutOptions, type RedirectLoginOptions, type GetTokenSilentlyOptions, type User } from '@auth0/auth0-spa-js';
+import {
+  createAuth0Client,
+  type Auth0Client,
+  type User as Auth0UserProfile,
+  type LogoutOptions,
+  type RedirectLoginOptions,
+  type GetTokenSilentlyOptions
+} from '@auth0/auth0-spa-js';
 import { auth0ClientStore, isAuthenticated, user, isLoading, authError } from './store';
+import type { AppUser } from './store'; 
 import { PUBLIC_VITE_AUTH0_DOMAIN, PUBLIC_VITE_AUTH0_CLIENT_ID, PUBLIC_VITE_AUTH0_CALLBACK_URL, PUBLIC_VITE_AUTH0_AUDIENCE } from '$env/static/public';
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { goto } from '$app/navigation';
 
 async function createClient(): Promise<Auth0Client> {
   const client = await createAuth0Client({
@@ -49,9 +58,9 @@ export async function initializeAuth(): Promise<void> {
     const currentlyAuthenticated = await client.isAuthenticated();
     console.log('[authService initializeAuth] client.isAuthenticated() check result:', currentlyAuthenticated);
     if (currentlyAuthenticated) {
-      const userProfile = await client.getUser();
+      const userProfile = await client.getUser(); // userProfile is Auth0UserProfile | undefined
       console.log('[authService initializeAuth] User is authenticated (no redirect). Profile:', userProfile);
-      user.set(userProfile);
+      user.set(userProfile ? (userProfile as AppUser) : null); // Set AppUser or null
       isAuthenticated.set(true);
       authError.set(null);
     } else {
@@ -99,7 +108,7 @@ async function handleRedirectCallback(): Promise<void> {
     console.log('[authService] client.handleRedirectCallback() completed.');
 
     // Get User Profile
-    const userProfile = await client.getUser();
+    const userProfile = await client.getUser(); // userProfile is Auth0UserProfile | undefined
     console.log('[authService] client.getUser() profile:', userProfile);
 
     // Get ID Token Claims
@@ -119,7 +128,7 @@ async function handleRedirectCallback(): Promise<void> {
 
     if (userProfile) { // Or you could check idTokenClaims if that's more reliable for your setup
       isAuthenticated.set(true);
-      user.set(userProfile); // Storing the profile from getUser()
+      user.set(userProfile as AppUser); // Cast to AppUser. Role/id will be undefined initially.
       authError.set(null);
       console.log('[authService] User profile loaded and stores updated.');
     } else {
@@ -133,6 +142,10 @@ async function handleRedirectCallback(): Promise<void> {
     // as long as handleRedirectCallback itself didn't throw before this.
     window.history.replaceState({}, document.title, window.location.pathname);
     console.log('[authService] Query params removed from URL.');
+
+    // Navigate away from the callback page
+    await goto('/', { replaceState: true });
+    console.log('[authService] Redirect callback processed. Navigating to target path: /');
 
   } catch (e: any) {
     console.error('[authService] Error during redirect callback processing (outer try-catch):', e);

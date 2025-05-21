@@ -1,6 +1,7 @@
 // frontend/src/lib/userService.ts
 import { getAccessTokenSilently } from './authService'; // To get Auth0 token
-import { user as auth0UserStore } from './store';      // To get the Auth0 user object from the store
+import { user } from './store'; // Import the user store directly
+import type { AppUser } from './store'; // Import the AppUser type
 import { get } from 'svelte/store';
 
 /**
@@ -22,7 +23,7 @@ export interface UserSyncPayload {
  * and their profile is available in the auth0UserStore.
  */
 export async function syncUserToDb(): Promise<void> {
-  const auth0User = get(auth0UserStore); // Get the current Auth0 user profile from the Svelte store
+  const auth0User = get(user); // Get the current Auth0 user profile from the Svelte store
 
   // Ensure there is an Auth0 user and, critically, an ID (sub claim) to sync against.
   if (!auth0User || !auth0User.sub) {
@@ -51,7 +52,7 @@ export async function syncUserToDb(): Promise<void> {
     };
 
     // Make the API call to your backend's sync endpoint.
-    const response = await fetch('/api/users/sync', { // Ensure this is your correct backend endpoint URI
+    const response = await fetch('http://localhost:8080/api/users/sync', { // Ensure this is your correct backend endpoint URI
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -75,8 +76,11 @@ export async function syncUserToDb(): Promise<void> {
 
     // Assuming the backend returns JSON, parse it.
     // This could be the created/updated user record from your database or a success message.
-    const responseData = await response.json();
+    const responseData: AppUser = await response.json(); // Explicitly type responseData
     console.log('syncUserToDb: User synchronized successfully with backend.', responseData);
+
+    // Update the user store with the full user details from the backend (including role and id)
+    user.set(responseData);
 
     // TODO: Optionally, update any local application state based on the backend's response.
     // For example, if your backend assigns an internal ID to the user and returns it,
