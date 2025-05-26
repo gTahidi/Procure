@@ -6,8 +6,8 @@ import type { Auth0Client } from '@auth0/auth0-spa-js';
 // Define a new interface for our application's user, extending Auth0's user profile
 export interface AppUser extends Auth0UserProfile {
   role?: string; // To store the role from our backend (e.g., 'requester', 'admin')
-  // Add other app-specific user properties here if needed, e.g., internal DB ID
   id?: number; // Assuming your backend User model has an int64 ID
+  picture_url?: string; // Explicitly add picture_url to match backend response
 }
 
 // Store for the Auth0 client instance

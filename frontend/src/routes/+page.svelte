@@ -9,14 +9,22 @@
   // Reactive statement for displayName
   let displayName = 'User';
   $: {
-    if ($user && $user.name) {
-      displayName = $user.name;
+    if ($user) {
+      console.log(
+        'Home page $user changed:', 
+        { 
+          name: $user.name, 
+          nickname: $user.nickname, 
+          email: $user.given_name 
+        },
+        'Full $user object:', $user
+      );
     } else {
-      // If name is not available, keep 'User' or consider other fallbacks if desired
-      displayName = 'User'; 
+      console.log('Home page $user is null');
     }
-    // Log from home page perspective
-    console.log(`Home page reactive update: displayName='${displayName}', $user.name='${$user?.name}', $user object:`, $user);
+    // Temporarily assign displayName directly for the h1 to still work,
+    // but the log above is the focus.
+    displayName = $user?.name || $user?.nickname || $user?.email || 'User';
   }
   
   onMount(() => {
@@ -43,7 +51,7 @@
   <div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
     <div class="text-center mb-12">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">
-        Welcome back, {displayName}!
+        Welcome !
       </h1>
       <p class="text-lg text-gray-600">
         Here's what's happening with your procurement activities today.
