@@ -1,79 +1,81 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import type { PageData } from './$types';
 
-	// Get the requisition ID from the route parameters
-	const requisitionId = $page.params.id;
+	export let data: PageData;
 
-	// Mock data - in a real app, you'd fetch this based on requisitionId
-	const mockRequisitionDetails = {
-		id: requisitionId,
-		title: `Details for Requisition ${requisitionId}`,
-		description: 'This is a detailed description of the requisition. It would include items, quantities, justifications, budget codes, and approval history.',
-		requester: 'Mock User',
-		status: 'Pending Approval',
-		creationDate: '2024-05-13',
-		items: [
-			{ name: 'Item A', quantity: 10, unitPrice: 50 },
-			{ name: 'Item B', quantity: 5, unitPrice: 120 },
-		],
-		attachments: [
-			{ name: 'Quote_SupplierX.pdf', url: '#' },
-			{ name: 'SpecSheet_ItemA.docx', url: '#' },
-		]
-	};
+	// Helper to format date string (e.g., YYYY-MM-DD)
+	function formatDate(dateString: string | undefined): string {
+		if (!dateString) return 'N/A';
+		const date = new Date(dateString);
+		return date.toLocaleDateString('en-CA'); // YYYY-MM-DD format
+	}
 
-	// If you want to simulate finding a specific requisition from a list (like the one on the list page)
-	// You could import that list or have a shared store, then find by ID.
-	// For this placeholder, we'll just use the generated mock details directly.
-	const requisition = mockRequisitionDetails;
+	// The requisition object is now directly from data prop
+	// $: requisition = data.requisition; // This is reactive, good if data can change after load
+	// For initial load, direct access is fine too, but reactive is safer for future updates.
+	// Let's use direct access for now and ensure +page.ts handles errors by throwing SvelteKit errors.
 
 </script>
 
 <svelte:head>
-	<title>Requisition {requisition.id} - Procurement System</title>
+	<title>Requisition {data.requisition?.id || 'Details'} - Procurement System</title>
 </svelte:head>
 
+{#if data.requisition}
 <div class="container mx-auto py-8 px-4">
 	<div class="bg-white shadow-lg rounded-lg p-6 md:p-8">
 		<div class="mb-6 pb-4 border-b border-gray-200">
-			<h1 class="text-3xl font-semibold text-gray-800">{requisition.title}</h1>
-			<p class="text-sm text-gray-500">Created on: {requisition.creationDate} by {requisition.requester}</p>
+			<h1 class="text-3xl font-semibold text-gray-800">Requisition ID: {data.requisition.id}</h1>
+			<p class="text-sm text-gray-500">Created on: {formatDate(data.requisition.created_at)} by User ID: {data.requisition.user_id}</p>
 		</div>
 
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
 			<div>
 				<h3 class="text-lg font-medium text-gray-700 mb-1">Requisition ID</h3>
-				<p class="text-gray-600">{requisition.id}</p>
+				<p class="text-gray-600">{data.requisition.id}</p>
 			</div>
 			<div>
 				<h3 class="text-lg font-medium text-gray-700 mb-1">Status</h3>
 				<span class={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full 
-								${requisition.status === 'Approved' ? 'bg-green-100 text-green-800' : 
-								 requisition.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' : 
-								 requisition.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
+								${data.requisition.status === 'approved' ? 'bg-green-100 text-green-800' : 
+								 data.requisition.status === 'pending_approval' || data.requisition.status === 'submitted_for_approval' ? 'bg-yellow-100 text-yellow-800' : 
+								 data.requisition.status === 'rejected' ? 'bg-red-100 text-red-800' : 
+								 data.requisition.status === 'draft' ? 'bg-blue-100 text-blue-800' :
 								'bg-gray-100 text-gray-800'}`}>
-					{requisition.status}
+					{data.requisition.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
 				</span>
 			</div>
 			<div>
-				<h3 class="text-lg font-medium text-gray-700 mb-1">Requester</h3>
-				<p class="text-gray-600">{requisition.requester}</p>
+				<h3 class="text-lg font-medium text-gray-700 mb-1">Requester (User ID)</h3>
+				<p class="text-gray-600">{data.requisition.user_id}</p>
 			</div>
+			{#if data.requisition.type}
+			<div>
+				<h3 class="text-lg font-medium text-gray-700 mb-1">Type</h3>
+				<p class="text-gray-600">{data.requisition.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</p>
+			</div>
+			{/if}
+			{#if data.requisition.aac}
+			<div>
+				<h3 class="text-lg font-medium text-gray-700 mb-1">AAC (Annual Allocation Code)</h3>
+				<p class="text-gray-600">{data.requisition.aac}</p>
+			</div>
+			{/if}
 		</div>
 
 		<div class="mb-8">
 			<h3 class="text-xl font-semibold text-gray-700 mb-3">Description</h3>
-			<p class="text-gray-600 leading-relaxed whitespace-pre-line">{requisition.description}</p>
+			<p class="text-gray-600 leading-relaxed whitespace-pre-line">{data.requisition.description || 'No description provided.'}</p>
 		</div>
 
 		<div class="mb-8">
 			<h3 class="text-xl font-semibold text-gray-700 mb-3">Items</h3>
-			{#if requisition.items && requisition.items.length > 0}
+			{#if data.requisition.items && data.requisition.items.length > 0}
 				<ul class="divide-y divide-gray-200">
-					{#each requisition.items as item (item.name)}
+					{#each data.requisition.items as item (item.id) }
 						<li class="py-3 flex justify-between items-center">
-							<span class="text-gray-700">{item.name}</span>
-							<span class="text-gray-500">Quantity: {item.quantity} @ ${item.unitPrice}/unit</span>
+							<span class="text-gray-700">{item.description} ({item.unit})</span>
+							<span class="text-gray-500">Quantity: {item.quantity} @ ${item.estimated_unit_price?.toFixed(2) || 'N/A'}/unit</span>
 						</li>
 					{/each}
 				</ul>
@@ -84,9 +86,11 @@
 
 		<div class="mb-8">
 			<h3 class="text-xl font-semibold text-gray-700 mb-3">Attachments</h3>
-			{#if requisition.attachments && requisition.attachments.length > 0}
+			<!-- Currently, backend does not support attachments for requisitions -->
+			<p class="text-gray-500 italic">Attachments feature not yet implemented for requisitions.</p>
+			<!-- {#if data.requisition.attachments && data.requisition.attachments.length > 0}
 				<ul class="list-disc list-inside space-y-1">
-					{#each requisition.attachments as attachment (attachment.name)}
+					{#each data.requisition.attachments as attachment (attachment.name)}
 						<li>
 							<a href={attachment.url} class="text-indigo-600 hover:text-indigo-800 hover:underline" target="_blank" rel="noopener noreferrer">
 								{attachment.name}
@@ -96,17 +100,35 @@
 				</ul>
 			{:else}
 				<p class="text-gray-500 italic">No attachments for this requisition.</p>
-			{/if}
+			{/if} -->
 		</div>
 
 		<div class="mt-8 pt-6 border-t border-gray-200 flex justify-end space-x-3">
-			<!-- Placeholder for action buttons like Approve, Reject, Edit, etc. -->
-			<button class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+			<a href="/requisitions" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 no-underline">
 				Back to List
-			</button>
+			</a>
+			{#if data.requisition.status === 'draft'}
 			<button class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">
-				Edit Requisition (Placeholder)
+				Edit Requisition
 			</button>
+			{:else}
+			<button class="px-4 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed" disabled>
+				Edit Requisition
+			</button>
+			{/if}
 		</div>
 	</div>
 </div>
+{:else if data.error}
+	<div class="container mx-auto py-8 px-4 text-center">
+		<h1 class="text-2xl font-semibold text-red-600">Error Loading Requisition</h1>
+		<p class="text-gray-600">{data.error.message || 'An unknown error occurred.'}</p>
+		<a href="/requisitions" class="mt-4 inline-block px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 no-underline">
+			Back to Requisitions List
+		</a>
+	</div>
+{:else}
+	<div class="container mx-auto py-8 px-4 text-center">
+		<p class="text-gray-600">Loading requisition details...</p>
+	</div>
+{/if}

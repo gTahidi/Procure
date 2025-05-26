@@ -10,6 +10,7 @@ import (
 
 	"procurement/database"
 	"procurement/handlers"
+	appMiddleware "procurement/middleware"
 )
 
 func main() {
@@ -38,12 +39,19 @@ func main() {
 
 	// API routes group
 	r.Route("/api", func(apiRouter chi.Router) {
-		// Register user routes (e.g., /api/users/sync)
+		// Register user routes (e.g., /api/users/sync) - these might be public or have their own auth
 		handlers.RegisterUserRoutes(apiRouter)
 
-		// Register requisition routes
-		apiRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
-		// Add other requisition routes here (GET, PUT, DELETE)
+		// Authenticated routes group
+		apiRouter.Group(func(authRouter chi.Router) {
+			authRouter.Use(appMiddleware.TokenMiddleware) // Apply the token middleware
+
+			// Register requisition routes
+			authRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
+			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
+			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler) // New route for single requisition
+			// Add other authenticated requisition routes here (GET, PUT, DELETE)
+		})
 	})
 
 	// Simple health check route

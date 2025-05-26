@@ -74,9 +74,8 @@ func SetupDatabaseSchema() {
 
 	err := dbInstance.AutoMigrate(
 		&models.User{}, // Re-enabled AutoMigrate for User model
-		// Add other models here as they are created, e.g.:
-		// &models.Requisition{},
-		// &models.RequisitionItem{},
+		&models.Requisition{},
+		&models.RequisitionItem{},
 	)
 	if err != nil {
 		// If models.User was the only thing being migrated and it's commented out,

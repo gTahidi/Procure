@@ -1,5 +1,9 @@
 import type { PageLoad, PageLoadEvent } from './$types';
 import { PUBLIC_API_BASE_URL } from '$env/static/public';
+import { getAccessTokenSilently } from '$lib/authService';
+import { isAuthenticated } from '$lib/store';
+import { get } from 'svelte/store';
+import { redirect } from '@sveltejs/kit';
 
 export interface BackendRequisition {
   id: number;          // Matches 'ID' from backend JSON
@@ -24,16 +28,55 @@ export interface FrontendRequisition {
 }
 
 export const load: PageLoad = async (event: PageLoadEvent) => {
+  const authenticated = get(isAuthenticated);
+
+  if (!authenticated) {
+    console.log('[+page.ts /requisitions] User not authenticated. Redirecting to login.');
+    throw redirect(307, '/'); // Redirect to home, which should trigger login if needed via +layout.svelte
+  }
+
+  let token: string | undefined;
   try {
-    const response = await event.fetch(`${PUBLIC_API_BASE_URL}/requisitions`); // Ensure backend is running and accessible
+    token = await getAccessTokenSilently();
+    if (!token) {
+      console.error('[+page.ts /requisitions] Authenticated, but failed to retrieve access token.');
+      return {
+        requisitions: [],
+        error: 'Failed to obtain authentication token. Please try logging out and back in.'
+      };
+    }
+  } catch (e) {
+    console.error('[+page.ts /requisitions] Error calling getAccessTokenSilently:', e);
+    return {
+      requisitions: [],
+      error: 'Error retrieving authentication token. Please try logging out and back in.'
+    };
+  }
+
+  try {
+    const fetchOptions: RequestInit = {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    };
+
+    const response = await event.fetch(`${PUBLIC_API_BASE_URL}/api/requisitions`, fetchOptions);
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        console.error(`[+page.ts /requisitions] Auth error from backend: ${response.status}`);
+        return {
+          requisitions: [],
+          error: `Authentication error from server (${response.status}). Your session might be invalid.`
+        };
+      }
       throw new Error(`HTTP error ${response.status} while fetching requisitions`);
     }
     const backendRequisitions: BackendRequisition[] = await response.json();
 
     const requisitions: FrontendRequisition[] = backendRequisitions.map(req => ({
       id: `REQ-${String(req.id).padStart(3, '0')}`,
-      // Title: Currently not available from this backend endpoint. Using a placeholder.
       title: `Requisition - ${String(req.id).padStart(3, '0')}`,
       requester: `User ID: ${req.user_id}`,
       type: req.type,
@@ -41,7 +84,7 @@ export const load: PageLoad = async (event: PageLoadEvent) => {
       creationDate: new Date(req.created_at).toLocaleDateString('en-US', {
         year: 'numeric', month: 'short', day: 'numeric'
       }),
-      detailLink: `/requisitions/REQ-${String(req.id).padStart(3, '0')}`
+      detailLink: `/requisitions/${req.id}`
     }));
 
     return {

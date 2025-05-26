@@ -151,10 +151,21 @@
         </nav>
 
         <div class="border-t border-gray-700 p-0" class:p-4={sidebarOpen}>
-          {#if $isAuthenticated}
-            <div class="user-info my-2" class:text-center={!sidebarOpen} class:px-4={sidebarOpen}>
+          {#if $isAuthenticated && $user}
+            {console.log('Sidebar user object:', $user)} 
+            <div class="user-info my-2 flex flex-col items-center" class:items-start={sidebarOpen} class:px-4={sidebarOpen}>
+              {#if $user.picture_url}
+                <img src={$user.picture_url} alt="{$user && ($user.name || 'User')}'s profile picture" class="rounded-full mb-2" class:w-10={!sidebarOpen} class:h-10={!sidebarOpen} class:w-12={sidebarOpen} class:h-12={sidebarOpen} referrerpolicy="no-referrer" />
+              {:else}
+                <div class="rounded-full bg-gray-600 flex items-center justify-center text-white mb-2" class:w-10={!sidebarOpen} class:h-10={!sidebarOpen} class:w-12={sidebarOpen} class:h-12={sidebarOpen} class:text-lg={!sidebarOpen} class:text-xl={sidebarOpen}>
+                  {($user && ($user.name || $user.email || 'U')).charAt(0).toUpperCase()}
+                </div>
+              {/if}
               {#if sidebarOpen}
-                <span class="block text-sm">{$user?.name || $user?.email}</span>
+                <span class="block text-sm font-semibold">{$user && ($user.name || $user.email)}</span>
+                {#if $user && $user.role}
+                  <span class="block text-xs text-gray-400 capitalize">{$user.role}</span>
+                {/if}
               {/if}
             </div>
             <button 

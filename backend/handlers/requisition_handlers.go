@@ -2,126 +2,207 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"procurement/database" // Module name 'procurement' then path
 	"procurement/models"
 	// "time" // No longer explicitly needed for CreatedAt if GORM handles it
 	"gorm.io/gorm" // Added for gorm.ErrRecordNotFound or other GORM specific needs
+	"strconv"      // Added for strconv.ParseInt
+
+	"github.com/go-chi/chi/v5" // Added for chi.URLParam
+	"errors"                   // Added for errors.Is
 )
 
 // CreateRequisitionHandler handles POST requests to create a new requisition
 func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDB() // This returns *gorm.DB
-	if db == nil {
-		log.Println("ERROR: CreateRequisitionHandler: Database not initialized")
-		http.Error(w, "Database connection not initialized", http.StatusInternalServerError)
-		return
-	}
-
 	var reqPayload models.Requisition
+
 	if err := json.NewDecoder(r.Body).Decode(&reqPayload); err != nil {
-		log.Printf("ERROR: CreateRequisitionHandler: Invalid request payload: %v\n", err)
-		http.Error(w, "Invalid request payload: "+err.Error(), http.StatusBadRequest)
+		log.Printf("ERROR: CreateRequisitionHandler: Failed to decode request body: %v\n", err)
+		RespondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
 		return
 	}
 	defer r.Body.Close()
 
-	// Basic Validation (more comprehensive validation should be added)
+	// Basic Validation (example)
 	if reqPayload.UserID == 0 {
-		http.Error(w, "User ID is required", http.StatusBadRequest)
+		RespondWithError(w, http.StatusBadRequest, "UserID is required")
 		return
 	}
 	if reqPayload.Type == "" {
-		http.Error(w, "Requisition type is required", http.StatusBadRequest)
+		RespondWithError(w, http.StatusBadRequest, "Requisition type is required")
 		return
 	}
 	if len(reqPayload.Items) == 0 {
-		http.Error(w, "At least one requisition item is required", http.StatusBadRequest)
+		RespondWithError(w, http.StatusBadRequest, "At least one item is required")
 		return
 	}
-	for _, item := range reqPayload.Items {
-		if item.Description == "" || item.Quantity <= 0 || item.Unit == "" {
-			http.Error(w, "All requisition items must have a description, quantity, and unit", http.StatusBadRequest)
-			return
-		}
-	}
 
-	// Start a GORM transaction
 	tx := db.Begin()
 	if tx.Error != nil {
-		log.Printf("ERROR: CreateRequisitionHandler: Failed to start GORM transaction: %v\n", tx.Error)
-		http.Error(w, "Failed to start transaction: "+tx.Error.Error(), http.StatusInternalServerError)
+		log.Printf("ERROR: CreateRequisitionHandler: Failed to begin transaction: %v\n", tx.Error)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to begin transaction: "+tx.Error.Error())
 		return
 	}
 
-	// Defer a rollback in case of panic or error.
-	// If tx.Commit() is called successfully, the rollback is a no-op.
+	// Defer a rollback in case of panic or an unhandled error path.
+	// Successful Commit will make this Rollback a no-op.
 	defer func() {
-		if rec := recover(); rec != nil {
+		if r := recover(); r != nil {
 			tx.Rollback()
-			// Re-panic if you want to propagate the panic after rollback
-			// panic(rec)
-			log.Printf("PANIC: CreateRequisitionHandler: Rolled back transaction due to panic: %v", rec)
-			// Ensure a response is sent if a panic occurs during HTTP handling
-			if הודעה, בסדר := rec.(string); בסדר {
-				http.Error(w, "Internal server error after panic: "+הודעה, http.StatusInternalServerError)
-			} else {
-				http.Error(w, "Internal server error after panic", http.StatusInternalServerError)
-			}
-		} else if tx.Error != nil && tx.Error != gorm.ErrRecordNotFound { // Check tx.Error from operations like Create, Save, Delete
-			// If tx.Error is set from an operation like tx.Create, and we haven't committed yet,
-			// then we should roll back.
-			// gorm.ErrRecordNotFound might be a legitimate case in some non-creation scenarios, 
-			// but for creation, any error usually means rollback.
-			log.Printf("INFO: CreateRequisitionHandler: Transaction error, rolling back: %v", tx.Error)
-			tx.Rollback() // tx.Error should have been set by a failing GORM operation
+			log.Printf("PANIC: CreateRequisitionHandler: Recovered from panic: %v\n", r)
+			// RespondWithError(w, http.StatusInternalServerError, "Internal server error after panic") // Might not be possible if headers sent
+			return
+		}
+		// If tx.Error is set (e.g. by a failed Commit), and we haven't returned yet, rollback.
+		if tx.Error != nil {
+			log.Printf("INFO: CreateRequisitionHandler: Rolling back transaction due to error: %v\n", tx.Error)
+			tx.Rollback()
 		}
 	}()
 
-	// Set default status if not provided
-	if reqPayload.Status == "" {
-		reqPayload.Status = "pending" // Default status
-	}
-	// GORM will handle CreatedAt and UpdatedAt automatically if fields exist in the model (e.g. via gorm.Model embedding or explicit fields)
+	// --- Start Transactional Operations ---
 
-	// Insert Requisition using GORM
+	// 1. Store items temporarily and clear from main payload to prevent GORM cascade on Requisition create.
+	itemsToCreate := reqPayload.Items
+	reqPayload.Items = nil // Important: Prevent GORM from attempting to cascade-create items here.
+
+	// 2. Create the main Requisition record.
 	if err := tx.Create(&reqPayload).Error; err != nil {
-		// Rollback is handled by defer, but log and return error immediately
 		log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition: %v\n", err)
-		http.Error(w, "Failed to insert requisition: "+err.Error(), http.StatusInternalServerError)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to insert requisition: "+err.Error())
+		tx.Rollback() // Explicit rollback
 		return
 	}
-	// reqPayload.ID is now populated by GORM
 
-	// Insert RequisitionItems using GORM
-	for i := range reqPayload.Items {
-		item := &reqPayload.Items[i] // Get a pointer to the item in the slice
-		item.RequisitionID = reqPayload.ID // Set the foreign key
+	// reqPayload now has the ID of the newly created requisition (e.g., reqPayload.ID)
 
-		if err := tx.Create(item).Error; err != nil {
-			// Rollback is handled by defer, but log and return error immediately
-			log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition item (%s): %v\n", item.Description, err)
-			http.Error(w, "Failed to insert requisition item: "+err.Error(), http.StatusInternalServerError)
+	// 3. Iterate over the stored items, set their RequisitionID, ensure their own ID is 0 (for new items),
+	//    and then create them individually.
+	if len(itemsToCreate) > 0 {
+		for i := range itemsToCreate {
+			itemsToCreate[i].RequisitionID = reqPayload.ID // Set the foreign key
+			itemsToCreate[i].ID = 0                       // CRITICAL: Ensure GORM treats item as new for auto-increment ID
+
+			if err := tx.Create(&itemsToCreate[i]).Error; err != nil {
+				log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition item ('%s'): %v\n", itemsToCreate[i].Description, err)
+				RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to insert requisition item ('%s'): %v", itemsToCreate[i].Description, err.Error()))
+				tx.Rollback() // Explicit rollback
+				return
+			}
+		}
+	}
+
+	// 4. If all operations were successful, commit the transaction.
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("ERROR: CreateRequisitionHandler: Failed to commit transaction: %v\n", err)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to commit transaction: "+err.Error())
+		// The defer func will handle rollback if tx.Error is set by Commit() failure.
+		return
+	}
+
+	// --- End Transactional Operations ---
+
+	log.Printf("INFO: CreateRequisitionHandler: Successfully created requisition ID %d with %d items\n", reqPayload.ID, len(itemsToCreate))
+	
+	// To send back the full requisition with its newly created items (and their DB-generated IDs):
+	// We need to reload the requisition with its items. The `reqPayload` has the main requisition details,
+	// and `itemsToCreate` has the item details with their new IDs.
+	finalReqPayload := reqPayload
+	finalReqPayload.Items = itemsToCreate // Items now have their DB-assigned IDs
+
+	RespondWithJSON(w, http.StatusCreated, finalReqPayload)
+}
+
+// ListRequisitionsHandler handles GET requests to list requisitions for the authenticated user
+func ListRequisitionsHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+	if db == nil {
+		log.Println("ERROR: ListRequisitionsHandler: Database not initialized")
+		RespondWithError(w, http.StatusInternalServerError, "Database connection not initialized")
+		return
+	}
+
+	userIDFromCtx := r.Context().Value("userID")
+	if userIDFromCtx == nil {
+		log.Println("ERROR: ListRequisitionsHandler: userID not found in context. Unauthorized.")
+		RespondWithError(w, http.StatusUnauthorized, "Unauthorized: User ID not found in request context.")
+		return
+	}
+
+	userID, ok := userIDFromCtx.(int64) // Changed from uint to int64
+	if !ok || userID == 0 {
+		log.Printf("ERROR: ListRequisitionsHandler: Invalid userID type in context or userID is 0. userIDFromCtx: %v", userIDFromCtx)
+		RespondWithError(w, http.StatusForbidden, "Forbidden: Invalid user identifier.")
+		return
+	}
+
+	var requisitions []models.Requisition
+	if err := db.Preload("Items").Where("user_id = ?", userID).Order("created_at desc").Find(&requisitions).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			RespondWithJSON(w, http.StatusOK, []models.Requisition{}) // Send empty array
 			return
 		}
-		// item.ID is now populated by GORM
-	}
-
-	// Commit the transaction
-	if err := tx.Commit().Error; err != nil {
-		// Rollback is handled by defer if commit fails and sets tx.Error, but explicit check is good.
-		log.Printf("ERROR: CreateRequisitionHandler: Failed to commit transaction: %v\n", err)
-		http.Error(w, "Failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("ERROR: ListRequisitionsHandler: Failed to query requisitions for user %d: %v\n", userID, err)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve requisitions: "+err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(reqPayload); err != nil {
-		log.Printf("ERROR: CreateRequisitionHandler: Failed to encode response: %v\n", err)
-		// The transaction is committed, but we couldn't send the response.
-		// http.Error might not work here if headers are already sent.
+	RespondWithJSON(w, http.StatusOK, requisitions)
+	log.Printf("INFO: Successfully retrieved %d requisitions for user ID: %d", len(requisitions), userID)
+}
+
+// GetRequisitionHandler handles GET requests to fetch a single requisition by ID for the authenticated user
+func GetRequisitionHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+	if db == nil {
+		log.Println("ERROR: GetRequisitionHandler: Database not initialized")
+		RespondWithError(w, http.StatusInternalServerError, "Database connection not initialized")
+		return
 	}
-	log.Printf("INFO: Requisition created successfully with ID: %d", reqPayload.ID)
+
+	// Get authenticated user ID from context
+	userIDFromCtx := r.Context().Value("userID")
+	if userIDFromCtx == nil {
+		log.Println("ERROR: GetRequisitionHandler: userID not found in context. Unauthorized.")
+		RespondWithError(w, http.StatusUnauthorized, "Unauthorized: User ID not found in request context.")
+		return
+	}
+	userID, ok := userIDFromCtx.(int64)
+	if !ok || userID == 0 {
+		log.Printf("ERROR: GetRequisitionHandler: Invalid userID type in context or userID is 0. userIDFromCtx: %v", userIDFromCtx)
+		RespondWithError(w, http.StatusForbidden, "Forbidden: Invalid user identifier.")
+		return
+	}
+
+	// Get requisition ID from URL parameter
+	requisitionIDStr := chi.URLParam(r, "id")
+	if requisitionIDStr == "" {
+		RespondWithError(w, http.StatusBadRequest, "Requisition ID is required")
+		return
+	}
+	requisitionID, err := strconv.ParseInt(requisitionIDStr, 10, 64)
+	if err != nil {
+		RespondWithError(w, http.StatusBadRequest, "Invalid Requisition ID format")
+		return
+	}
+
+	var requisition models.Requisition
+	// Query for the specific requisition, ensuring it belongs to the authenticated user
+	if err := db.Preload("Items").Where("id = ? AND user_id = ?", requisitionID, userID).First(&requisition).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("WARN: GetRequisitionHandler: Requisition ID %d not found for user ID %d", requisitionID, userID)
+			RespondWithError(w, http.StatusNotFound, "Requisition not found or you do not have permission to view it.")
+		} else {
+			log.Printf("ERROR: GetRequisitionHandler: Failed to query requisition ID %d for user %d: %v\n", requisitionID, userID, err)
+			RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve requisition: "+err.Error())
+		}
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, requisition)
+	log.Printf("INFO: Successfully retrieved requisition ID %d for user ID %d", requisition.ID, userID)
 }

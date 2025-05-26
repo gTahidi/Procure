@@ -1,5 +1,8 @@
 <script lang="ts">
 	import DocumentUpload from '$lib/components/DocumentUpload.svelte';
+	import { user } from '$lib/store';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 
 	let requisition = {
 		requesterId: '', // Should be pre-filled or selected (e.g. logged in user)
@@ -27,6 +30,15 @@
 	let attachedFiles: any[] = [];
 	let loading = false; // For API call feedback
 	let submissionMessage = ''; // To display success/error messages
+
+	onMount(() => {
+		if ($user && $user.id) { 
+			requisition.requesterId = String($user.id); 
+		} else {
+			console.error('User not logged in or user ID not available for PR creation.');
+			submissionMessage = 'Error: You must be logged in to create a requisition.';
+		}
+	});
 
 	function handleFilesAttached(event: CustomEvent) {
 		attachedFiles = [...attachedFiles, ...event.detail];
@@ -64,8 +76,15 @@
 		submissionMessage = '';
 		requisition.status = isDraft ? 'draft' : 'submitted_for_approval';
 
+		if (!$user || !$user.id) {
+			console.error('Attempted to submit PR without a logged-in user or user ID.');
+			submissionMessage = 'Error: You must be logged in with a valid user ID to create a requisition.';
+			loading = false;
+			return; 
+		}
+
 		const payload = {
-			user_id: 1, // Hardcoded for now, should be replaced with actual user ID
+			user_id: $user.id, 
 			type: requisition.requisitionType,
 			aac: requisition.aac || null,
 			status: requisition.status,
@@ -100,28 +119,35 @@
 			submissionMessage = `Requisition ${isDraft ? 'saved as draft' : 'submitted for approval'} successfully! ID: ${responseData.id}`;
 			console.log('Success:', responseData);
 
-			// Reset form on success
-			requisition = {
-				requesterId: '',
-				department: '',
-				requisitionType: 'goods',
-				aac: '',
-				estimatedCost: null,
-				description: '',
-				urgencyLevel: 'medium',
-				requiredByDate: '',
-				deliveryLocation: '',
-				items: [{
+			// If successfully submitted (not just saved as draft), redirect to the requisitions list page
+			if (!isDraft) {
+				setTimeout(() => { // Short delay to allow user to see success message
+					goto('/requisitions');
+				}, 1500); // 1.5 seconds delay
+			} else {
+				// Reset form on successful draft save
+				requisition = {
+					requesterId: $user?.id ? String($user.id) : '', 
+					department: '',
+					requisitionType: 'goods',
+					aac: '',
+					estimatedCost: null,
 					description: '',
-					quantity: 1,
-					unit: 'unit',
-					unitPrice: null,
-					total: 0
-				}],
-				notes: '',
-				status: 'draft'
-			};
-			attachedFiles = [];
+					urgencyLevel: 'medium',
+					requiredByDate: '',
+					deliveryLocation: '',
+					items: [{
+						description: '',
+						quantity: 1,
+						unit: 'unit',
+						unitPrice: null,
+						total: 0
+					}],
+					notes: '',
+					status: 'draft'
+				};
+				attachedFiles = [];
+			}
 
 		} catch (error: any) {
 			console.error('Submission error:', error);

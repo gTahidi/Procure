@@ -5,6 +5,19 @@
   import { logout, checkAuthStatus } from '$lib/authService';
   
   let loading = true;
+
+  // Reactive statement for displayName
+  let displayName = 'User';
+  $: {
+    if ($user && $user.name) {
+      displayName = $user.name;
+    } else {
+      // If name is not available, keep 'User' or consider other fallbacks if desired
+      displayName = 'User'; 
+    }
+    // Log from home page perspective
+    console.log(`Home page reactive update: displayName='${displayName}', $user.name='${$user?.name}', $user object:`, $user);
+  }
   
   onMount(() => {
     if (!checkAuthStatus()) {
@@ -30,7 +43,7 @@
   <div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
     <div class="text-center mb-12">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">
-        Welcome back, {$user?.name || 'User'}!
+        Welcome back, {displayName}!
       </h1>
       <p class="text-lg text-gray-600">
         Here's what's happening with your procurement activities today.
