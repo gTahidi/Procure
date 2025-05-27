@@ -58,6 +58,7 @@ func main() {
 			authRouter.Post("/tenders", tenderHandler.CreateTender)
 			authRouter.Get("/tenders", tenderHandler.GetTenders)
 			authRouter.Get("/tenders/{id}", tenderHandler.GetTenderByID)
+			authRouter.Put("/tenders/{id}", tenderHandler.UpdateTender)
 		})
 	})
 

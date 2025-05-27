@@ -3,6 +3,7 @@
 	import { user } from '$lib/store';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { getAccessTokenSilently } from '$lib/authService'; // Import getAccessTokenSilently
 
 	let requisition = {
 		requesterId: '', // Should be pre-filled or selected (e.g. logged in user)
@@ -83,6 +84,22 @@
 			return; 
 		}
 
+		// Fetch the access token
+		let token;
+		try {
+			token = await getAccessTokenSilently();
+			if (!token) {
+				submissionMessage = 'Error: Could not retrieve authentication token. Please log in again.';
+				loading = false;
+				return;
+			}
+		} catch (e) {
+			console.error('Error fetching token:', e);
+			submissionMessage = 'Error: Failed to obtain authentication token.';
+			loading = false;
+			return;
+		}
+
 		const payload = {
 			user_id: $user.id, 
 			type: requisition.requisitionType,
@@ -105,7 +122,8 @@
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					'Accept': 'application/json'
+					'Accept': 'application/json',
+					'Authorization': `Bearer ${token}` // Add Authorization header
 				},
 				body: JSON.stringify(payload)
 			});
@@ -113,7 +131,9 @@
 			const responseData = await response.json();
 
 			if (!response.ok) {
-				throw new Error(responseData.message || `HTTP error! status: ${response.status}`);
+				// Use the error message from backend if available, otherwise default
+				const errorMsg = responseData.error || responseData.message || `HTTP error! status: ${response.status}`;
+				throw new Error(errorMsg);
 			}
 
 			submissionMessage = `Requisition ${isDraft ? 'saved as draft' : 'submitted for approval'} successfully! ID: ${responseData.id}`;

@@ -19,21 +19,25 @@
 
 	$: {
 		if (data && data.tender) {
+			const isNewTenderOrDataChanged = !tender || tender.id !== data.tender.id || tender.updated_at !== data.tender.updated_at;
 			tender = data.tender;
-			// Initialize editableTender when tender data is available or changes
-			if (tender) {
+			
+			// Only re-initialize editableTender if not in edit mode OR if the underlying tender data has actually changed
+			// (e.g., after a save, or if a different tender was loaded)
+			if (tender && (!editMode || isNewTenderOrDataChanged)) { 
 				editableTender = { ...tender };
-				// Ensure dates are in yyyy-MM-dd format for input type="date"
 				if (editableTender.published_date) {
-					editableTender.published_date = new Date(editableTender.published_date).toISOString().split('T')[0];
+					editableTender.published_date = formatDateForDateInput(editableTender.published_date);
 				}
 				if (editableTender.closing_date) {
-					// For datetime-local, it needs to be in YYYY-MM-DDTHH:mm format
-					const d = new Date(editableTender.closing_date);
-					editableTender.closing_date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+					editableTender.closing_date = formatDateForInput(editableTender.closing_date);
+				}
+				// Add bid_opening_date formatting as well
+				if (editableTender.bid_opening_date) {
+					editableTender.bid_opening_date = formatDateForInput(editableTender.bid_opening_date);
 				}
 			}
-			error = data.error;
+			error = data.error; // Ensure data.error is assigned to the local error variable
 			isLoading = false;
 		} else if (data && data.error) {
 			error = data.error;
@@ -48,13 +52,17 @@
 		errorMessage = null;
 		if (editMode && tender) {
 			// Re-initialize editableTender from current tender state when entering edit mode
-			editableTender = { ...tender };
+			editableTender = { ...tender }; // Ensure all fields from tender are copied, especially those not on the form but part of the Tender type
+
+				// Format dates for their respective input fields
 				if (editableTender.published_date) {
-					editableTender.published_date = new Date(editableTender.published_date).toISOString().split('T')[0];
+					editableTender.published_date = formatDateForDateInput(editableTender.published_date);
 				}
 				if (editableTender.closing_date) {
-					const d = new Date(editableTender.closing_date);
-					editableTender.closing_date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+					editableTender.closing_date = formatDateForInput(editableTender.closing_date);
+				}
+				if (editableTender.bid_opening_date) {
+					editableTender.bid_opening_date = formatDateForInput(editableTender.bid_opening_date);
 				}
 		} 
 	}
@@ -64,6 +72,25 @@
 		isLoading = true;
 		errorMessage = null;
 		successMessage = null;
+
+		// Construct the payload with only the fields intended for update
+		const payload: Partial<Tender> = {
+			title: editableTender.title,
+			description: editableTender.description === '' ? null : editableTender.description, // Send null if empty
+			category: editableTender.category === '' ? null : editableTender.category,
+			status: editableTender.status === '' ? null : editableTender.status,
+			evaluation_method: editableTender.evaluation_method === '' ? null : editableTender.evaluation_method,
+			// Convert budget to number, or null if empty/invalid
+			budget: editableTender.budget !== undefined && editableTender.budget !== null && String(editableTender.budget).trim() !== '' ? Number(editableTender.budget) : null,
+			// Convert dates to full ISO strings if they exist, otherwise null
+			published_date: editableTender.published_date ? new Date(editableTender.published_date).toISOString() : null,
+			closing_date: editableTender.closing_date ? new Date(editableTender.closing_date).toISOString() : null,
+			bid_opening_date: editableTender.bid_opening_date ? new Date(editableTender.bid_opening_date).toISOString() : null,
+			requisition_id: editableTender.requisition_id ? Number(editableTender.requisition_id) : null
+		};
+
+		// Remove null fields from payload if backend prefers omitted fields over nulls for some optional fields
+		// For now, sending null for empty optional fields is generally fine for GORM *type fields.
 
 		try {
 			const token = await getAccessTokenSilently();
@@ -79,27 +106,30 @@
 					'Content-Type': 'application/json',
 					'Authorization': `Bearer ${token}`
 				},
-				body: JSON.stringify(editableTender)
+				body: JSON.stringify(payload) // Send the cleaned payload
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({ message: 'Failed to update tender. The server returned an unexpected response.' }));
-				throw new Error(errorData.message || `HTTP error ${response.status}`);
+				// Try to parse backend error message, otherwise use a generic one
+				const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}. Failed to parse error response.` }));
+				throw new Error(errorData.error || `HTTP error ${response.status}. An unexpected error occurred.`);
 			}
 
-			const updatedTender: Tender = await response.json();
-			tender = updatedTender; // Update the main tender object with new data
-			// Re-initialize editableTender to reflect saved state and correct date formats for display/next edit
-			if (tender) {
-				editableTender = { ...tender };
-				if (editableTender.published_date) {
-					editableTender.published_date = new Date(editableTender.published_date).toISOString().split('T')[0];
-				}
-				if (editableTender.closing_date) {
-					const d = new Date(editableTender.closing_date);
-					editableTender.closing_date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-				}
+			const updatedTenderFromServer: Tender = await response.json();
+			tender = updatedTenderFromServer; // Update the main tender object with new data from server
+			
+			// Re-initialize editableTender for display/next edit, formatting dates for input fields
+			editableTender = { ...tender }; 
+			if (editableTender.published_date) {
+				editableTender.published_date = formatDateForDateInput(editableTender.published_date);
 			}
+			if (editableTender.closing_date) {
+				editableTender.closing_date = formatDateForInput(editableTender.closing_date);
+			}
+            if (editableTender.bid_opening_date) {
+                editableTender.bid_opening_date = formatDateForInput(editableTender.bid_opening_date);
+            }
+
 			successMessage = 'Tender updated successfully!';
 			editMode = false;
 		} catch (err: any) {
@@ -158,8 +188,8 @@
 	function formatDateForInput(dateString: string | null | undefined): string {
         if (!dateString) return '';
         const d = new Date(dateString);
-        // Format to YYYY-MM-DDTHH:mm for datetime-local input
-        return new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+        // Format to YYYY-MM-DDTHH:mm for datetime-local input, adjusting for timezone
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     }
 
     function formatDateForDateInput(dateString: string | null | undefined): string {

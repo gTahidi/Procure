@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors" // Added for errors.Is
 	"fmt"
 	"log"
 	"net/http"
@@ -10,9 +11,9 @@ import (
 	// "time" // No longer explicitly needed for CreatedAt if GORM handles it
 	"gorm.io/gorm" // Added for gorm.ErrRecordNotFound or other GORM specific needs
 	"strconv"      // Added for strconv.ParseInt
+	"strings"      // Added for strings.EqualFold
 
 	"github.com/go-chi/chi/v5" // Added for chi.URLParam
-	"errors"                   // Added for errors.Is
 )
 
 // CreateRequisitionHandler handles POST requests to create a new requisition
@@ -140,8 +141,35 @@ func ListRequisitionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch the user from the database to check their role
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			log.Printf("ERROR: ListRequisitionsHandler: User with ID %d not found in database.", userID)
+			RespondWithError(w, http.StatusForbidden, "Forbidden: User not found.")
+			return
+		}
+		log.Printf("ERROR: ListRequisitionsHandler: Failed to query user %d: %v\n", userID, err)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve user details: "+err.Error())
+		return
+	}
+
 	var requisitions []models.Requisition
-	if err := db.Preload("Items").Where("user_id = ?", userID).Order("created_at desc").Find(&requisitions).Error; err != nil {
+	query := db.Preload("Items").Order("created_at desc")
+
+	// Check user role
+	// TODO: Make "procurement_officer" a constant or configurable value
+	// Use case-insensitive comparison for the role
+	if strings.EqualFold(user.Role, "procurement_officer") {
+		// Procurement officers see all requisitions
+		log.Printf("INFO: User %d (Role: %s) is a procurement officer, fetching all requisitions.", userID, user.Role)
+	} else {
+		// Other users see only their own requisitions
+		log.Printf("INFO: User %d (Role: %s) is not a procurement officer, fetching only their requisitions.", userID, user.Role)
+		query = query.Where("user_id = ?", userID)
+	}
+
+	if err := query.Find(&requisitions).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			RespondWithJSON(w, http.StatusOK, []models.Requisition{}) // Send empty array
 			return
@@ -190,19 +218,55 @@ func GetRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var requisition models.Requisition
-	// Query for the specific requisition, ensuring it belongs to the authenticated user
-	if err := db.Preload("Items").Where("id = ? AND user_id = ?", requisitionID, userID).First(&requisition).Error; err != nil {
+	// Fetch the user from the database to check their role
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Printf("WARN: GetRequisitionHandler: Requisition ID %d not found for user ID %d", requisitionID, userID)
-			RespondWithError(w, http.StatusNotFound, "Requisition not found or you do not have permission to view it.")
+			log.Printf("ERROR: GetRequisitionHandler: User with ID %d not found in database.", userID)
+			RespondWithError(w, http.StatusForbidden, "Forbidden: User not found.")
+			return
+		}
+		log.Printf("ERROR: GetRequisitionHandler: Failed to query user %d: %v\n", userID, err)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve user details: "+err.Error())
+		return
+	}
+
+	// ADDED: Diagnostic logging for user role
+	log.Printf("DIAGNOSTIC: GetRequisitionHandler: Fetched user for role check. UserID: %d, UserRole from DB: '%s'", user.ID, user.Role)
+
+	var requisition models.Requisition
+	query := db.Preload("Items")
+
+	// Role-based access control
+	// TODO: Make "procurement_officer" a constant or configurable value
+	if strings.EqualFold(user.Role, "procurement_officer") {
+		// Procurement officers can view any requisition by ID
+		log.Printf("INFO: GetRequisitionHandler: User %d (Role: %s) is a procurement officer. Accessing requisition ID %d.", userID, user.Role, requisitionID)
+		query = query.Where("id = ?", requisitionID)
+	} else {
+		// Other users can only view their own requisitions
+		log.Printf("INFO: GetRequisitionHandler: User %d (Role: %s) is not a procurement officer. Accessing own requisition ID %d.", userID, user.Role, requisitionID)
+		query = query.Where("id = ? AND user_id = ?", requisitionID, userID)
+	}
+
+	// Query for the specific requisition
+	if err := query.First(&requisition).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Log slightly different message based on role access
+			if strings.EqualFold(user.Role, "procurement_officer") {
+				log.Printf("WARN: GetRequisitionHandler: Requisition ID %d not found (Procurement Officer access).", requisitionID)
+				RespondWithError(w, http.StatusNotFound, "Requisition not found.")
+			} else {
+				log.Printf("WARN: GetRequisitionHandler: Requisition ID %d not found for user ID %d or user lacks permission.", requisitionID, userID)
+				RespondWithError(w, http.StatusNotFound, "Requisition not found or you do not have permission to view it.")
+			}
 		} else {
-			log.Printf("ERROR: GetRequisitionHandler: Failed to query requisition ID %d for user %d: %v\n", requisitionID, userID, err)
+			log.Printf("ERROR: GetRequisitionHandler: Failed to query requisition ID %d (User ID %d, Role %s): %v\n", requisitionID, userID, user.Role, err)
 			RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve requisition: "+err.Error())
 		}
 		return
 	}
 
 	RespondWithJSON(w, http.StatusOK, requisition)
-	log.Printf("INFO: Successfully retrieved requisition ID %d for user ID %d", requisition.ID, userID)
+	log.Printf("INFO: Successfully retrieved requisition ID %d for user ID %d (Role: %s)", requisition.ID, userID, user.Role)
 }
