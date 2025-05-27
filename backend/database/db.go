@@ -76,6 +76,7 @@ func SetupDatabaseSchema() {
 		&models.User{}, // Re-enabled AutoMigrate for User model
 		&models.Requisition{},
 		&models.RequisitionItem{},
+		&models.Tender{}, // Add Tender model for auto-migration
 	)
 	if err != nil {
 		// If models.User was the only thing being migrated and it's commented out,

@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import type { PageData } from './$types';
 	import type { Tender } from '$lib/types';
+	import { PUBLIC_API_BASE_URL } from '$env/static/public';
+	import { getAccessTokenSilently } from '$lib/authService';
 
 	export let data: PageData;
 
@@ -64,21 +66,40 @@
 		successMessage = null;
 
 		try {
-			const response = await fetch(`/api/tenders/${tender.id}`, {
+			const token = await getAccessTokenSilently();
+			if (!token) {
+				errorMessage = 'Authentication token not available. Please log in again.';
+				isLoading = false;
+				return;
+			}
+
+			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}`, {
 				method: 'PUT',
 				headers: {
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
 				},
 				body: JSON.stringify(editableTender)
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({ message: 'Failed to update tender.' }));
+				const errorData = await response.json().catch(() => ({ message: 'Failed to update tender. The server returned an unexpected response.' }));
 				throw new Error(errorData.message || `HTTP error ${response.status}`);
 			}
 
 			const updatedTender: Tender = await response.json();
 			tender = updatedTender; // Update the main tender object with new data
+			// Re-initialize editableTender to reflect saved state and correct date formats for display/next edit
+			if (tender) {
+				editableTender = { ...tender };
+				if (editableTender.published_date) {
+					editableTender.published_date = new Date(editableTender.published_date).toISOString().split('T')[0];
+				}
+				if (editableTender.closing_date) {
+					const d = new Date(editableTender.closing_date);
+					editableTender.closing_date = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+				}
+			}
 			successMessage = 'Tender updated successfully!';
 			editMode = false;
 		} catch (err: any) {
@@ -98,12 +119,22 @@
 		errorMessage = null;
 
 		try {
-			const response = await fetch(`/api/tenders/${tender.id}`, {
-				method: 'DELETE'
+			const token = await getAccessTokenSilently();
+			if (!token) {
+				errorMessage = 'Authentication token not available. Please log in again.';
+				isLoading = false;
+				return;
+			}
+
+			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}`, {
+				method: 'DELETE',
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({ message: 'Failed to delete tender.' }));
+				const errorData = await response.json().catch(() => ({ message: 'Failed to delete tender. The server returned an unexpected response.' }));
 				throw new Error(errorData.message || `HTTP error ${response.status}`);
 			}
 			

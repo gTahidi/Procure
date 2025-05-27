@@ -37,10 +37,10 @@
 			<div>
 				<h3 class="text-lg font-medium text-gray-700 mb-1">Status</h3>
 				<span class={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full 
-								${data.requisition.status === 'approved' ? 'bg-green-100 text-green-800' : 
-								 data.requisition.status === 'pending_approval' || data.requisition.status === 'submitted_for_approval' ? 'bg-yellow-100 text-yellow-800' : 
-								 data.requisition.status === 'rejected' ? 'bg-red-100 text-red-800' : 
-								 data.requisition.status === 'draft' ? 'bg-blue-100 text-blue-800' :
+								${data.requisition.status === 'Approved' ? 'bg-green-100 text-green-800' : 
+								 data.requisition.status === 'Pending Approval' || data.requisition.status === 'Submitted for Approval' ? 'bg-yellow-100 text-yellow-800' : 
+								 data.requisition.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
+								 data.requisition.status === 'Draft' ? 'bg-blue-100 text-blue-800' :
 								'bg-gray-100 text-gray-800'}`}>
 					{data.requisition.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
 				</span>
@@ -107,11 +107,19 @@
 			<a href="/requisitions" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 no-underline">
 				Back to List
 			</a>
-			{#if data.requisition.status === 'draft'}
+
+			{#if data.requisition.status === 'Approved'}
+				<a href={`/tenders/new?requisitionId=${data.requisition.id}`}
+				   class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 no-underline">
+					Create Tender
+				</a>
+			{/if}
+
+			{#if data.requisition.status === 'Draft'}
 			<button class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">
 				Edit Requisition
 			</button>
-			{:else}
+			{:else if data.requisition.status !== 'Approved'} <!-- Only show disabled edit if not Draft and not Approved (where Create Tender shows) -->
 			<button class="px-4 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed" disabled>
 				Edit Requisition
 			</button>

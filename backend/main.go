@@ -18,6 +18,7 @@ func main() {
 		log.Fatalf("FATAL: Could not initialize database: %v", err)
 	}
 	database.SetupDatabaseSchema() // Ensure schema is set up on startup using GORM
+	dbInstance := database.GetDB()
 
 	r := chi.NewRouter()
 
@@ -51,6 +52,12 @@ func main() {
 			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
 			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler) // New route for single requisition
 			// Add other authenticated requisition routes here (GET, PUT, DELETE)
+
+			// Register Tender routes
+			tenderHandler := handlers.NewTenderHandler(dbInstance)
+			authRouter.Post("/tenders", tenderHandler.CreateTender)
+			authRouter.Get("/tenders", tenderHandler.GetTenders)
+			authRouter.Get("/tenders/{id}", tenderHandler.GetTenderByID)
 		})
 	})
 
