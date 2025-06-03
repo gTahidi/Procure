@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
@@ -73,14 +76,52 @@ func (h *TenderHandler) CreateTender(w http.ResponseWriter, r *http.Request) {
 // GetTenders handles listing all tenders.
 // GET /api/tenders
 func (h *TenderHandler) GetTenders(w http.ResponseWriter, r *http.Request) {
-	var tenders []models.Tender
-	// TODO: Add pagination, filtering (e.g., by status, category) as needed
-	if err := h.DB.Find(&tenders).Error; err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to retrieve tenders: " + err.Error()})
+	userID, ok := r.Context().Value("userID").(int64)
+	if !ok {
+		RespondWithError(w, http.StatusUnauthorized, "User ID not found or invalid in context")
 		return
 	}
+
+	var user models.User
+	if err := h.DB.First(&user, userID).Error; err != nil {
+		RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve user details: "+err.Error())
+		return
+	}
+
+	log.Printf("GetTenders: UserID: %d, Role: %s", userID, user.Role)
+
+	var tenders []models.Tender
+	query := h.DB.Model(&models.Tender{}) // Start with a base query
+
+	if strings.EqualFold(user.Role, "supplier") {
+		log.Println("GetTenders: Applying supplier-specific filters")
+		query = query.Where("status IN (?, ?)", "published", "open").Where("closing_date > ?", time.Now())
+
+		// Filtering by category for suppliers
+		category := r.URL.Query().Get("category")
+		if category != "" {
+			log.Printf("GetTenders: Supplier filtering by category: %s", category)
+			query = query.Where("LOWER(category) = LOWER(?) ", category) // Case-insensitive category search
+		}
+		// TODO: Add other supplier filters like department if needed
+		// TODO: Add sorting options for suppliers
+
+	} else if strings.EqualFold(user.Role, "procurement_officer") {
+		log.Println("GetTenders: Procurement officer fetching all tenders (or apply specific PO filters here)")
+		// Procurement officers can see all tenders, or add specific filters for them if needed.
+		// For now, no additional filters beyond the base query, so they get all.
+	} else {
+		// Other roles (e.g., requester) see only tenders they created
+		log.Printf("GetTenders: User role '%s' fetching their created tenders", user.Role)
+		query = query.Where("created_by_user_id = ?", userID)
+	}
+
+	// Execute the query
+	if err := query.Order("created_at DESC").Find(&tenders).Error; err != nil {
+		RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve tenders: "+err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(tenders)

@@ -10,15 +10,31 @@ import (
 
 	"procurement/database"
 	"procurement/handlers"
+	"procurement/models"
 	appMiddleware "procurement/middleware"
 )
 
 func main() {
-	if err := database.InitDB(); err != nil { // Initialize DB connection pool
-		log.Fatalf("FATAL: Could not initialize database: %v", err)
+	// Initialize Database
+	if err := database.InitDB(); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	database.SetupDatabaseSchema() // Ensure schema is set up on startup using GORM
-	dbInstance := database.GetDB()
+	log.Println("Database connection and initialization successful.")
+
+	// Get DB instance for migration
+	db := database.GetDB()
+
+	// Auto-migrate models
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Requisition{},
+		&models.RequisitionItem{},
+		&models.Tender{},
+		&models.Bid{},
+	); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
+	log.Println("Database migration successful.")
 
 	r := chi.NewRouter()
 
@@ -54,12 +70,29 @@ func main() {
 			// Add other authenticated requisition routes here (GET, PUT, DELETE)
 
 			// Register Tender routes
-			tenderHandler := handlers.NewTenderHandler(dbInstance)
+			tenderHandler := handlers.NewTenderHandler(db)
 			authRouter.Post("/tenders", tenderHandler.CreateTender)
 			authRouter.Get("/tenders", tenderHandler.GetTenders)
 			authRouter.Get("/tenders/{id}", tenderHandler.GetTenderByID)
 			authRouter.Put("/tenders/{id}", tenderHandler.UpdateTender)
+			// authRouter.Delete("/tenders/{id}", tenderHandler.DeleteTender) // Commented out for now as DeleteTender is not yet implemented
+
+			// Register Bid routes (New)
+			bidHandler := handlers.NewBidHandler(db) // Create BidHandler instance
+			// POST /api/tenders/{tender_id}/bids - Supplier creates a bid for a tender
+			authRouter.Post("/tenders/{tenderId}/bids", bidHandler.CreateBid) // Placeholder for actual handler method
+
+			// GET /api/tenders/{tender_id}/bids - Procurement officer lists bids for a tender
+			authRouter.Get("/tenders/{tenderId}/bids", bidHandler.ListTenderBids) // Placeholder
+
+			// GET /api/my-bids - Supplier lists their own submitted bids
+			authRouter.Get("/my-bids", bidHandler.ListMyBids) // Placeholder
+
+			// Add other authenticated routes here
 		})
+
+		// Public routes (if any)
+		// r.Get("/some-public-route", somePublicHandler)
 	})
 
 	// Simple health check route
@@ -67,9 +100,8 @@ func main() {
 		w.Write([]byte("Welcome to the Procurement Backend!"))
 	})
 
-	port := ":8080"
-	log.Printf("Backend server starting on port %s...", port)
-	if err := http.ListenAndServe(port, r); err != nil {
+	log.Println("Server starting on :8080")
+	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatalf("Could not start server: %s\n", err)
 	}
 }

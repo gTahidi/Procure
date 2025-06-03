@@ -5,16 +5,30 @@
 	import type { Tender } from '$lib/types';
 	import { PUBLIC_API_BASE_URL } from '$env/static/public';
 	import { getAccessTokenSilently } from '$lib/authService';
+	import { user } from '$lib/store'; // Import the user store
 
+	// Props from +page.ts
 	export let data: PageData;
 
-	let tender: Tender | null = null;
+	// Reactive declarations for tender data and errors
+	$: tender = data.tender;
+	$: error = data.error; // Error from loading tender itself
+	$: bids = data.bids; // Bids data for POs
+	$: bidsError = data.bidsError; // Error from loading bids
+
+	// Component state
 	let editableTender: Partial<Tender> = {}; // For form binding
-	let error: string | null = null;
 	let isLoading: boolean = true;
 	let editMode: boolean = false;
 
-	let successMessage: string | null = null;
+	// Bid submission form variables
+	let bidAmount: number | null = null;
+	let bidProposalUrl: string = ''; // Assuming a URL for a proposal document
+	let bidSubmissionError: string | null = null;
+	let bidSubmissionSuccess: string | null = null;
+	let isSubmittingBid: boolean = false;
+
+	let successMessage: string | null = null; // For general success messages like delete/update
 	let errorMessage: string | null = null;
 
 	$: {
@@ -45,6 +59,15 @@
 			isLoading = false;
 		}
 	}
+
+	// Reactive conditions for UI rendering based on user role and tender state
+	$: isSupplier = $user && $user.role === 'supplier';
+	$: isTenderOpenForBidding = tender && (tender.status === 'open' || tender.status === 'published') && tender.closing_date && new Date(tender.closing_date) > new Date();
+	$: showBidForm = !editMode && isSupplier && isTenderOpenForBidding && tender?.status !== 'closed' && tender?.status !== 'cancelled' && tender?.status !== 'awarded';
+	$: canEditTender = !editMode && $user && ($user.role === 'procurement_officer' || $user.role === 'admin');
+	$: canViewBids = !editMode && $user && ($user.role === 'procurement_officer' || $user.role === 'admin');
+
+	// Edit mode state
 
 	function toggleEditMode() {
 		editMode = !editMode;
@@ -137,6 +160,60 @@
 			errorMessage = err.message || 'An unexpected error occurred.';
 		} finally {
 			isLoading = false;
+		}
+	}
+
+	async function handleSubmitBid() {
+		if (!tender || !tender.id || !bidAmount) {
+			bidSubmissionError = 'Bid amount is required.';
+			return;
+		}
+		isSubmittingBid = true;
+		bidSubmissionError = null;
+		bidSubmissionSuccess = null;
+
+		try {
+			const token = await getAccessTokenSilently();
+			if (!token) {
+				bidSubmissionError = 'Authentication token not available. Please log in again.';
+				isSubmittingBid = false;
+				return;
+			}
+
+			const bidPayload = {
+				bid_amount: bidAmount,
+				// Add other bid fields here if necessary, e.g.:
+				proposal_document_url: bidProposalUrl.trim() === '' ? null : bidProposalUrl.trim(),
+				// notes: bidNotes,
+			};
+
+			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}/bids`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify(bidPayload)
+			});
+
+			if (!response.ok) {
+				const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}` }));
+				throw new Error(errorData.message || errorData.error || `Failed to submit bid: ${response.status}`);
+			}
+
+			const createdBid = await response.json();
+			bidSubmissionSuccess = `Bid submitted successfully! Bid ID: ${createdBid.id}`;
+			// Optionally, clear the form or redirect
+			bidAmount = null;
+			bidProposalUrl = '';
+			// Consider invalidating tender data if bids list is shown on this page
+			// import { invalidate } from '$app/navigation';
+			// invalidate((url) => url.pathname === `/api/tenders/${tender.id}/bids`);
+		} catch (err: any) {
+			console.error('Bid submission error:', err);
+			bidSubmissionError = err.message || 'An unexpected error occurred while submitting your bid.';
+		} finally {
+			isSubmittingBid = false;
 		}
 	}
 
@@ -296,65 +373,144 @@
 							ID: {tender.id} | Published: {formatDate(tender.published_date)} | Closes: {formatDate(tender.closing_date)}
 						</p>
 					</div>
-					<div class="flex space-x-2">
-						<button on:click={toggleEditMode} class="btn btn-sm btn-outline btn-primary" disabled={isLoading}>Edit</button>
-						<button on:click={handleDelete} class="btn btn-sm btn-outline btn-error" disabled={isLoading}>Delete</button>
-					</div>
+					{#if canEditTender}
+						<div class="flex justify-end space-x-3 mb-6">
+							<button on:click={toggleEditMode} class="btn btn-outline btn-primary">
+								Edit Tender
+							</button>
+							<button on:click={handleDelete} class="btn btn-outline btn-error" disabled={isLoading}>
+								{#if isLoading}Deleting...{:else}Delete Tender{/if}
+							</button>
+						</div>
+					{/if}
 				</div>
 
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-					<div>
-						<h3 class="text-lg font-medium text-gray-700 mb-1">Status</h3>
-						<span class:px-2={true} class:py-1={true} class:inline-flex={true} class:text-sm={true} class:leading-5={true} class:font-semibold={true} class:rounded-full={true} 
-						  class:bg-blue-100={tender.status === 'published' || tender.status === 'open'}
-						  class:text-blue-800={tender.status === 'published' || tender.status === 'open'}
-						  class:bg-gray-100={tender.status === 'draft' || tender.status === 'closed'}
-						  class:text-gray-800={tender.status === 'draft' || tender.status === 'closed'}
-						  class:bg-green-100={tender.status === 'awarded'}
-						  class:text-green-800={tender.status === 'awarded'}
-						  class:bg-yellow-100={tender.status === 'evaluation'}
-						  class:text-yellow-800={tender.status === 'evaluation'}
-						  class:bg-red-100={tender.status === 'cancelled'}
-						  class:text-red-800={tender.status === 'cancelled'}
-						  class:bg-purple-100={!(tender.status === 'published' || tender.status === 'open' || tender.status === 'draft' || tender.status === 'closed' || tender.status === 'awarded' || tender.status === 'evaluation' || tender.status === 'cancelled')}
-						  class:text-purple-800={!(tender.status === 'published' || tender.status === 'open' || tender.status === 'draft' || tender.status === 'closed' || tender.status === 'awarded' || tender.status === 'evaluation' || tender.status === 'cancelled')}
-						>
-						  {tender.status || 'N/A'}
-						</span>
+				<!-- Tender Details Section -->
+				<div class="mt-6 py-4 space-y-4 border-t border-b border-gray-200 mb-6">
+					<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-6">
+						<div>
+							<p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</p>
+							<p class="mt-1 text-sm text-gray-900"><span class="badge badge-lg {
+								tender.status === 'open' ? 'badge-success' :
+								tender.status === 'published' ? 'badge-info' :
+								tender.status === 'closed' ? 'badge-error' :
+								tender.status === 'draft' ? 'badge-ghost' :
+								tender.status === 'evaluation' ? 'badge-warning' :
+								tender.status === 'awarded' ? 'badge-accent' : 
+								tender.status === 'cancelled' ? 'badge-outline badge-error' :
+								'badge-secondary'
+							}">{tender.status || 'N/A'}</span></p>
+						</div>
+						<div>
+							<p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Category</p>
+							<p class="mt-1 text-sm text-gray-900 capitalize">{tender.category || 'N/A'}</p>
+						</div>
+						<div>
+							<p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Budget</p>
+							<p class="mt-1 text-sm text-gray-900">{tender.budget != null ? `$${Number(tender.budget).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A'}</p>
+						</div>
+						{#if tender.requisition_id}
+							<div>
+								<p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Linked Requisition</p>
+								<a href={`/requisitions/${tender.requisition_id}`} class="mt-1 text-sm text-blue-600 hover:underline">REQ-{String(tender.requisition_id).padStart(3, '0')}</a>
+							</div>
+						{/if}
 					</div>
-					<div>
-						<h3 class="text-lg font-medium text-gray-700 mb-1">Category</h3>
-						<p class="text-gray-600">{tender.category || 'N/A'}</p>
-					</div>
-					<div>
-						<h3 class="text-lg font-medium text-gray-700 mb-1">Budget</h3>
-						<p class="text-gray-600">{tender.budget ? tender.budget.toLocaleString(undefined, { style: 'currency', currency: 'USD' }) : 'N/A'}</p> <!-- Adjust currency as needed -->
-					</div>
-				</div>
 
-				<div class="mb-8">
-					<h3 class="text-xl font-semibold text-gray-700 mb-3">Description</h3>
-					<p class="text-gray-600 leading-relaxed whitespace-pre-line">{tender.description || 'No description provided.'}</p>
-				</div>
-
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
 					<div>
-						<h3 class="text-lg font-medium text-gray-700 mb-1">Created By User ID</h3>
-						<p class="text-gray-600">{tender.created_by_user_id || 'N/A'}</p>
+						<p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Description</p>
+						<div class="mt-1 text-sm text-gray-900 prose prose-sm max-w-none whitespace-pre-wrap break-words">{tender.description || 'No description provided.'}</div>
 					</div>
-					<div>
-						<h3 class="text-lg font-medium text-gray-700 mb-1">Requisition ID</h3>
-						<p class="text-gray-600">{tender.requisition_id || 'N/A'}</p>
+					
+					<div class="text-xs text-gray-500 pt-3 mt-3 border-t border-gray-100">
+						<p>Created by User ID: {tender.created_by_user_id || 'N/A'} on {formatDate(tender.created_at)}</p>
+						<p>Last updated on {formatDate(tender.updated_at)}</p>
 					</div>
 				</div>
+				<!-- End Tender Details Section -->
 
-				<div class="text-sm text-gray-500 mt-8 pt-4 border-t">
-					<p>Last Updated: {formatDate(tender.updated_at)}</p>
-					<p>Created At: {formatDate(tender.created_at)}</p>
-				</div>
-				
-				<div class="mt-8 pt-6 border-t border-gray-200 flex justify-start">
-					<a href="/tenders" class="btn btn-outline"> Back to Tenders List</a>
+				{#if showBidForm}
+					<!-- Bid Form -->
+					<form on:submit|preventDefault={handleSubmitBid} class="space-y-6">
+						<h2 class="text-2xl font-semibold text-gray-800 mb-4">Submit Bid for {tender.title}</h2>
+						
+						{#if bidSubmissionError}
+							<div class="alert alert-error mb-4">
+								<p>{bidSubmissionError}</p>
+							</div>
+						{/if}
+						{#if bidSubmissionSuccess}
+							<div class="alert alert-success mb-4">
+								<p>{bidSubmissionSuccess}</p>
+							</div>
+						{/if}
+
+						<div>
+							<label for="bid-amount" class="block text-sm font-medium text-gray-700">Bid Amount <span class="text-red-500">*</span></label>
+							<input type="number" step="0.01" id="bid-amount" bind:value={bidAmount} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+						</div>
+						<div>
+							<label for="bid-proposal-url" class="block text-sm font-medium text-gray-700">Proposal Document URL (Optional)</label>
+							<input type="url" id="bid-proposal-url" bind:value={bidProposalUrl} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="https://example.com/proposal.pdf">
+						</div>
+
+						<div class="flex justify-end space-x-3 pt-4 border-t mt-6">
+							<button type="submit" class="btn btn-primary" disabled={isSubmittingBid}>
+								{#if isSubmittingBid}Submitting...{:else}Submit Bid{/if}
+							</button>
+						</div>
+					</form>
+				{/if}
+
+				<!-- Display Bids for Procurement Officers/Admins -->
+				{#if canViewBids && !editMode}
+					<div class="mt-10 pt-6 border-t">
+						<h3 class="text-xl font-semibold text-gray-800 mb-4">Submitted Bids</h3>
+						{#if bidsError}
+							<div class="alert alert-error">
+								<p>Error loading bids: {bidsError}</p>
+							</div>
+						{:else if bids && bids.length > 0}
+							<div class="overflow-x-auto">
+								<table class="table w-full table-zebra table-compact">
+									<thead>
+										<tr>
+											<th>Bid ID</th>
+											<th>Supplier ID</th>
+											<th>Amount</th>
+											<th>Proposal URL</th>
+											<th>Submitted At</th>
+											<th>Status</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each bids as bid (bid.id)}
+											<tr>
+												<td>{bid.id}</td>
+												<td>{bid.supplier_id}</td>
+												<td>{bid.bid_amount?.toFixed(2) || 'N/A'}</td>
+												<td>
+													{#if bid.proposal_document_url}
+														<a href={bid.proposal_document_url} target="_blank" rel="noopener noreferrer" class="link link-primary">View Proposal</a>
+													{:else}
+														N/A
+													{/if}
+												</td>
+												<td>{formatDate(bid.created_at)}</td>
+												<td><span class="badge badge-sm {bid.status === 'submitted' ? 'badge-info' : bid.status === 'awarded' ? 'badge-success' : bid.status === 'rejected' ? 'badge-error' : 'badge-ghost'}">{bid.status || 'N/A'}</span></td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{:else}
+							<p class="text-gray-600 italic">No bids have been submitted for this tender yet.</p>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="text-center mt-4">
+					<a href="/tenders" class="btn btn-primary"> Back to Tenders List</a>
 				</div>
 			{/if}
 		</div>

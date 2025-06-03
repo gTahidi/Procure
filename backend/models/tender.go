@@ -23,6 +23,9 @@ type Tender struct {
 	// Associations (optional, depending on how you want to load related data)
 	// Requisition Requisition `json:"requisition,omitempty" gorm:"foreignKey:RequisitionID"` // If you want to embed Requisition details
 	// User        User        `json:"created_by_user,omitempty" gorm:"foreignKey:CreatedByUserID"` // If you want to embed User details
+
+	// Has-many relationship: A Tender can have multiple Bids
+	Bids []Bid `json:"bids,omitempty" gorm:"foreignKey:TenderID"`
 }
 
 // TenderItem might be needed if tenders have their own line items distinct from requisition items
