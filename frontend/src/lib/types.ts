@@ -52,6 +52,37 @@ export interface Requisition {
   title?: string;
   description?: string;
   // Add other fields from your backend model as needed
+  items: RequisitionItem[];
+}
+
+export interface RequisitionItem {
+  id?: number; // Optional if it's a new item not yet saved
+  description: string;
+  quantity: number;
+  unit: string;
+  estimated_unit_price?: number | null;
+  specification_text?: string | null;
+  specificationSheetFile?: File | null; // For frontend handling of the file object
+  specification_sheet_url?: string | null; // For backend to store/retrieve URL
+  itemImageFile?: File | null; // For frontend handling
+  item_image_url?: string | null; // For backend
+  // Add any other existing item fields if necessary
+}
+
+export interface BidItem {
+  id?: number; // Optional if it's a new item not yet saved
+  bid_id?: number; // Will be set by backend when bid is created
+  requisition_item_id?: number | null; // Link to the original RequisitionItem
+  tender_item_id?: number; // Optional, to link to the original tender item if applicable (can be same as requisition_item_id or derived)
+  description: string; // Could be pre-filled from tender item
+  quantity: number; // Could be pre-filled from tender item
+  unit: string; // Could be pre-filled from tender item
+  offered_unit_price: number | null; // Supplier's price for this item
+  specification_text?: string | null;
+  specificationSheetFile?: File | null; // For frontend handling of the file object
+  specification_sheet_url?: string | null; // For backend to store/retrieve URL
+  itemImageFile?: File | null; // For frontend handling
+  item_image_url?: string | null; // For backend
 }
 
 
@@ -70,6 +101,7 @@ export interface Tender {
   created_by_user_id?: number | null; // from *int64
   created_at?: string | null; // from *time.Time
   updated_at?: string | null; // from *time.Time
+  requisition?: Requisition; // For preloaded requisition details
   // Add other relevant fields from your Go model
 }
 
@@ -84,6 +116,7 @@ export interface Bid {
   status: string; // e.g., 'submitted', 'under_evaluation', 'shortlisted', 'rejected', 'awarded'
   notes?: string | null;
   validity_period_days?: number | null; // from *int
+  items?: BidItem[]; // Array of bid items with detailed specifications
   created_at?: string | null; // from *time.Time
   updated_at?: string | null; // from *time.Time
   // Potentially an array of bid documents

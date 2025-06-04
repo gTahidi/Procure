@@ -31,6 +31,7 @@ func main() {
 		&models.RequisitionItem{},
 		&models.Tender{},
 		&models.Bid{},
+		&models.BidItem{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}

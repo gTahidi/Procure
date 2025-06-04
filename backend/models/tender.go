@@ -20,8 +20,8 @@ type Tender struct {
 	CreatedAt          time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt          time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 
-	// Associations (optional, depending on how you want to load related data)
-	// Requisition Requisition `json:"requisition,omitempty" gorm:"foreignKey:RequisitionID"` // If you want to embed Requisition details
+	// Associations
+	Requisition *Requisition `json:"requisition,omitempty" gorm:"foreignKey:RequisitionID;references:ID"` // Embed Requisition details. Pointer to allow omitempty.
 	// User        User        `json:"created_by_user,omitempty" gorm:"foreignKey:CreatedByUserID"` // If you want to embed User details
 
 	// Has-many relationship: A Tender can have multiple Bids

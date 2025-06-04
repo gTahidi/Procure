@@ -1,34 +1,37 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, invalidate } from '$app/navigation';
 	import type { PageData } from './$types';
-	import type { Tender } from '$lib/types';
+	import type { Tender, Bid, BidItem, RequisitionItem } from '$lib/types'; // Added Bid, BidItem, RequisitionItem
 	import { PUBLIC_API_BASE_URL } from '$env/static/public';
 	import { getAccessTokenSilently } from '$lib/authService';
-	import { user } from '$lib/store'; // Import the user store
+	import { user } from '$lib/store';
 
-	// Props from +page.ts
 	export let data: PageData;
 
-	// Reactive declarations for tender data and errors
 	$: tender = data.tender;
-	$: error = data.error; // Error from loading tender itself
-	$: bids = data.bids; // Bids data for POs
-	$: bidsError = data.bidsError; // Error from loading bids
+	$: error = data.error;
+	$: bids = data.bids;
+	$: bidsError = data.bidsError;
 
-	// Component state
-	let editableTender: Partial<Tender> = {}; // For form binding
+	let editableTender: Partial<Tender> = {};
 	let isLoading: boolean = true;
 	let editMode: boolean = false;
 
-	// Bid submission form variables
-	let bidAmount: number | null = null;
-	let bidProposalUrl: string = ''; // Assuming a URL for a proposal document
+	// New Bid Submission State
+	let newBid: Partial<Bid> & { items: BidItem[] } = {
+		notes: '',
+		items: []
+		// Add other general bid fields here if needed, e.g., validity_period: null
+	};
+	// To store File objects separately, as they can't be deeply cloned or easily stored in newBid.items directly with full reactivity for binding
+	let bidItemFiles: Array<{ specSheetFile: File | null; itemImageFile: File | null }> = [];
+
 	let bidSubmissionError: string | null = null;
 	let bidSubmissionSuccess: string | null = null;
 	let isSubmittingBid: boolean = false;
 
-	let successMessage: string | null = null; // For general success messages like delete/update
+	let successMessage: string | null = null;
 	let errorMessage: string | null = null;
 
 	$: {
@@ -64,6 +67,35 @@
 	$: isSupplier = $user && $user.role === 'supplier';
 	$: isTenderOpenForBidding = tender && (tender.status === 'open' || tender.status === 'published') && tender.closing_date && new Date(tender.closing_date) > new Date();
 	$: showBidForm = !editMode && isSupplier && isTenderOpenForBidding && tender?.status !== 'closed' && tender?.status !== 'cancelled' && tender?.status !== 'awarded';
+
+	// Initialize newBid.items when tender data is available and form should be shown
+	$: {
+		console.log('[Debug] Tender data before bid form init:', JSON.parse(JSON.stringify(tender)));
+		console.log('[Debug] showBidForm:', showBidForm);
+		if (tender && tender.requisition) {
+			console.log('[Debug] tender.requisition.items:', JSON.parse(JSON.stringify(tender.requisition.items)));
+		}
+	}
+	$: if (showBidForm && tender && tender.requisition && tender.requisition.items && newBid.items.length === 0) {
+		newBid.items = tender.requisition.items.map((reqItem: RequisitionItem) => ({
+			id: 0, // Placeholder, will be set by backend
+			bid_id: 0, // Placeholder
+			requisition_item_id: reqItem.id,
+			description: reqItem.description,
+			quantity: reqItem.quantity,
+			unit: reqItem.unit,
+			offered_unit_price: 0,
+			specification_text: '',
+			// File URLs will be set by backend, files handled separately for upload
+		}));
+		bidItemFiles = tender.requisition.items.map(() => ({ specSheetFile: null, itemImageFile: null }));
+		console.log('[Debug] newBid.items initialized:', JSON.parse(JSON.stringify(newBid.items)));
+	} else if (!showBidForm && newBid.items.length > 0) {
+		// Reset if form is hidden to avoid stale data if user navigates or conditions change
+		newBid.items = [];
+		bidItemFiles = [];
+		newBid.notes = '';
+	}
 	$: canEditTender = !editMode && $user && ($user.role === 'procurement_officer' || $user.role === 'admin');
 	$: canViewBids = !editMode && $user && ($user.role === 'procurement_officer' || $user.role === 'admin');
 
@@ -164,10 +196,15 @@
 	}
 
 	async function handleSubmitBid() {
-		if (!tender || !tender.id || !bidAmount) {
-			bidSubmissionError = 'Bid amount is required.';
+		if (!tender || !tender.id) {
+			bidSubmissionError = 'Tender information is missing.';
 			return;
 		}
+		if (newBid.items.some(item => typeof item.offered_unit_price !== 'number' || item.offered_unit_price <= 0)) {
+			bidSubmissionError = 'Offered unit price must be greater than zero for all items.';
+			return;
+		}
+
 		isSubmittingBid = true;
 		bidSubmissionError = null;
 		bidSubmissionSuccess = null;
@@ -180,35 +217,65 @@
 				return;
 			}
 
-			const bidPayload = {
-				bid_amount: bidAmount,
-				// Add other bid fields here if necessary, e.g.:
-				proposal_document_url: bidProposalUrl.trim() === '' ? null : bidProposalUrl.trim(),
-				// notes: bidNotes,
-			};
+			const formData = new FormData();
+
+			// Append general bid info
+			if (newBid.notes) formData.append('notes', newBid.notes);
+			// Calculate total bid amount from items for the 'bid_amount' field if backend still expects it
+			let totalBidAmount = 0;
+			newBid.items.forEach(item => {
+				totalBidAmount += (item.offered_unit_price || 0) * (item.quantity || 0);
+			});
+			formData.append('bid_amount', totalBidAmount.toFixed(2));
+
+			// Append items JSON (excluding files, as they are handled separately)
+			const itemsForJson = newBid.items.map(item => ({
+				requisition_item_id: item.requisition_item_id,
+				description: item.description,
+				quantity: item.quantity,
+				unit: item.unit,
+				offered_unit_price: item.offered_unit_price,
+				specification_text: item.specification_text,
+				// URLs will be set by backend
+			}));
+			formData.append('items_json', JSON.stringify(itemsForJson));
+
+			// Append files
+			bidItemFiles.forEach((filePair, index) => {
+				if (filePair.specSheetFile) {
+					formData.append(`item_spec_sheet_${index}`, filePair.specSheetFile);
+				}
+				if (filePair.itemImageFile) {
+					formData.append(`item_image_${index}`, filePair.itemImageFile);
+				}
+			});
 
 			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}/bids`, {
 				method: 'POST',
 				headers: {
-					'Content-Type': 'application/json',
+					// 'Content-Type': 'multipart/form-data' is set automatically by browser when using FormData
 					'Authorization': `Bearer ${token}`
 				},
-				body: JSON.stringify(bidPayload)
+				body: formData
 			});
 
 			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}` }));
-				throw new Error(errorData.message || errorData.error || `Failed to submit bid: ${response.status}`);
+				const errorData = await response.json().catch(() => ({ error: 'Failed to submit bid. Please try again.' }));
+				throw new Error(errorData.error || `HTTP error ${response.status}`);
 			}
 
 			const createdBid = await response.json();
-			bidSubmissionSuccess = `Bid submitted successfully! Bid ID: ${createdBid.id}`;
-			// Optionally, clear the form or redirect
-			bidAmount = null;
-			bidProposalUrl = '';
-			// Consider invalidating tender data if bids list is shown on this page
-			// import { invalidate } from '$app/navigation';
-			// invalidate((url) => url.pathname === `/api/tenders/${tender.id}/bids`);
+			bidSubmissionSuccess = `Bid (ID: ${createdBid.id}) submitted successfully with ${createdBid.items?.length || 0} items!`;
+			
+			// Reset form fields
+			newBid.notes = '';
+			newBid.items = []; // This will trigger re-initialization by the reactive block if still on page
+			bidItemFiles = [];
+			
+			// Invalidate bids data if displayed on this page (for procurement officers)
+			invalidate((url) => url.href.startsWith(`${PUBLIC_API_BASE_URL}/api/tenders/${tender?.id}/bids`));
+      // Also invalidate the tender itself in case its status or bid count changes
+      invalidate((url) => url.href === `${PUBLIC_API_BASE_URL}/api/tenders/${tender?.id}`);
 		} catch (err: any) {
 			console.error('Bid submission error:', err);
 			bidSubmissionError = err.message || 'An unexpected error occurred while submitting your bid.';
@@ -255,6 +322,26 @@
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	function handleSpecSheetFileChange(event: Event, index: number) {
+		const input = event.target as HTMLInputElement;
+		if (input.files && input.files[0]) {
+			bidItemFiles[index].specSheetFile = input.files[0];
+		} else {
+			bidItemFiles[index].specSheetFile = null;
+		}
+		bidItemFiles = [...bidItemFiles]; // Trigger reactivity for UI updates
+	}
+
+	function handleItemImageFileChange(event: Event, index: number) {
+		const input = event.target as HTMLInputElement;
+		if (input.files && input.files[0]) {
+			bidItemFiles[index].itemImageFile = input.files[0];
+		} else {
+			bidItemFiles[index].itemImageFile = null;
+		}
+		bidItemFiles = [...bidItemFiles]; // Trigger reactivity for UI updates
 	}
 
 	function formatDate(dateString: string | null | undefined) {
@@ -430,33 +517,108 @@
 				<!-- End Tender Details Section -->
 
 				{#if showBidForm}
-					<!-- Bid Form -->
-					<form on:submit|preventDefault={handleSubmitBid} class="space-y-6">
-						<h2 class="text-2xl font-semibold text-gray-800 mb-4">Submit Bid for {tender.title}</h2>
-						
+					<!-- Bid Form with Item Specifications -->
+					<form on:submit|preventDefault={handleSubmitBid} class="space-y-8 p-6 bg-white shadow rounded-lg">
+						<h2 class="text-2xl font-semibold text-gray-800 mb-6 border-b pb-3">Submit Your Bid for: {tender.title}</h2>
+
 						{#if bidSubmissionError}
-							<div class="alert alert-error mb-4">
-								<p>{bidSubmissionError}</p>
-							</div>
+							<div class="alert alert-error mb-4"><p>{bidSubmissionError}</p></div>
 						{/if}
 						{#if bidSubmissionSuccess}
-							<div class="alert alert-success mb-4">
-								<p>{bidSubmissionSuccess}</p>
+							<div class="alert alert-success mb-4"><p>{bidSubmissionSuccess}</p></div>
+						{/if}
+
+						<!-- General Bid Information -->
+						<div class="form-control">
+							<label for="bid-notes" class="label"><span class="label-text">Additional Notes (Optional)</span></label>
+							<textarea id="bid-notes" bind:value={newBid.notes} class="textarea textarea-bordered h-24" placeholder="Any additional comments or information for your bid..."></textarea>
+						</div>
+						<!-- Add other general bid fields here if needed, e.g., validity period -->
+
+						<h3 class="text-xl font-semibold text-gray-700 mt-6 mb-4">Item Specifications</h3>
+						{#if newBid.items && newBid.items.length > 0}
+							<div class="space-y-8">
+								{#each newBid.items as bidItem, i (bidItem.requisition_item_id)}
+									{@const originalReqItem = tender?.requisition?.items?.find(item => item.id === bidItem.requisition_item_id)}
+									<div class="card card-bordered bg-base-100 shadow-md p-2 sm:p-4 hover:shadow-lg transition-shadow duration-300 ease-in-out">
+										<h4 class="text-lg font-semibold text-primary mb-3 border-b pb-2">Item {i + 1}: {originalReqItem?.description || 'N/A'}</h4>
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+											<!-- Left Column: Original Requisition Item Details -->
+											<div class="space-y-3 pr-0 md:pr-4 md:border-r">
+												<div>
+													<p class="text-sm font-medium text-gray-700">Required Quantity:</p>
+													<p class="text-sm text-gray-600">{originalReqItem?.quantity} {originalReqItem?.unit}</p>
+												</div>
+												{#if originalReqItem?.specification_text || originalReqItem?.specification_sheet_url || originalReqItem?.item_image_url}
+												<div class="mt-2 p-3 bg-gray-50 rounded-md border border-gray-200">
+													<p class="text-xs font-semibold text-gray-700 mb-1">Original Specifications (from Requisition):</p>
+													{#if originalReqItem.specification_text}
+														<p class="text-xs text-gray-600 whitespace-pre-wrap"><strong>Details:</strong> {originalReqItem.specification_text}</p>
+													{/if}
+													{#if originalReqItem.specification_sheet_url}
+														<p class="text-xs text-gray-600 mt-1"><strong>Sheet:</strong> <a href={PUBLIC_API_BASE_URL + originalReqItem.specification_sheet_url} target="_blank" rel="noopener noreferrer" class="link link-hover link-primary">View Original Spec Sheet</a></p>
+													{/if}
+													{#if originalReqItem.item_image_url}
+														<p class="text-xs text-gray-600 mt-1"><strong>Image:</strong> <a href={PUBLIC_API_BASE_URL + originalReqItem.item_image_url} target="_blank" rel="noopener noreferrer" class="link link-hover link-primary">View Original Image</a></p>
+													{/if}
+												</div>
+												{/if}
+											</div>
+
+											<!-- Right Column: Supplier Inputs -->
+											<div class="space-y-4">
+												<div class="form-control">
+													<label for={`item-price-${i}`} class="label pb-1">
+														<span class="label-text font-medium">Your Offered Unit Price <span class="text-error">*</span></span>
+													</label>
+													<input type="number" step="0.01" min="0.01" id={`item-price-${i}`} bind:value={bidItem.offered_unit_price} required class="input input-bordered input-primary w-full" />
+												</div>
+
+												<div class="form-control">
+													<label for={`item-spec-text-${i}`} class="label pb-1">
+														<span class="label-text font-medium">Your Item Specification Text (Optional)</span>
+													</label>
+													<textarea id={`item-spec-text-${i}`} bind:value={bidItem.specification_text} class="textarea textarea-bordered textarea-primary h-24 w-full" placeholder="Describe your offered item, deviations, or compliance..."></textarea>
+												</div>
+
+												<div class="form-control">
+													<label for={`item-spec-sheet-${i}`} class="label pb-1">
+														<span class="label-text font-medium">Upload Specification Sheet (Optional)</span>
+														<span class="label-text-alt">PDF/DOCX, max 10MB</span>
+													</label>
+													<input type="file" id={`item-spec-sheet-${i}`} on:change={(e) => handleSpecSheetFileChange(e, i)} accept=".pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="file-input file-input-bordered file-input-primary w-full" />
+													{#if bidItemFiles[i]?.specSheetFile}
+														<p class="text-xs text-base-content/70 mt-1">Selected: {bidItemFiles[i].specSheetFile?.name}</p>
+													{/if}
+												</div>
+
+												<div class="form-control">
+													<label for={`item-image-${i}`} class="label pb-1">
+														<span class="label-text font-medium">Upload Item Image (Optional)</span>
+														<span class="label-text-alt">JPG/PNG, max 10MB</span>
+													</label>
+													<input type="file" id={`item-image-${i}`} on:change={(e) => handleItemImageFileChange(e, i)} accept="image/jpeg,image/png" class="file-input file-input-bordered file-input-primary w-full" />
+													{#if bidItemFiles[i]?.itemImageFile}
+														<p class="text-xs text-base-content/70 mt-1">Selected: {bidItemFiles[i].itemImageFile?.name}</p>
+													{/if}
+												</div>
+											</div>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<div class="alert alert-info shadow-lg">
+								<div>
+									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current flex-shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+									<span>No items found for this tender, or the bid form is not ready. Please check back later or contact support if you believe this is an error.</span>
+								</div>
 							</div>
 						{/if}
 
-						<div>
-							<label for="bid-amount" class="block text-sm font-medium text-gray-700">Bid Amount <span class="text-red-500">*</span></label>
-							<input type="number" step="0.01" id="bid-amount" bind:value={bidAmount} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-						</div>
-						<div>
-							<label for="bid-proposal-url" class="block text-sm font-medium text-gray-700">Proposal Document URL (Optional)</label>
-							<input type="url" id="bid-proposal-url" bind:value={bidProposalUrl} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="https://example.com/proposal.pdf">
-						</div>
-
-						<div class="flex justify-end space-x-3 pt-4 border-t mt-6">
-							<button type="submit" class="btn btn-primary" disabled={isSubmittingBid}>
-								{#if isSubmittingBid}Submitting...{:else}Submit Bid{/if}
+						<div class="flex justify-end space-x-3 pt-6 border-t mt-8">
+							<button type="submit" class="btn btn-primary btn-md" disabled={isSubmittingBid || newBid.items.length === 0}>
+								{#if isSubmittingBid}Submitting Bid...{:else}Submit Full Bid{/if}
 							</button>
 						</div>
 					</form>

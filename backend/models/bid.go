@@ -21,4 +21,5 @@ type Bid struct {
 	// Associations
 	Tender   Tender `json:"tender,omitempty" gorm:"foreignKey:TenderID"`
 	Supplier User   `json:"supplier,omitempty" gorm:"foreignKey:SupplierID"`
+	Items    []BidItem `json:"items,omitempty" gorm:"foreignKey:BidID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // A bid comprises multiple items
 }

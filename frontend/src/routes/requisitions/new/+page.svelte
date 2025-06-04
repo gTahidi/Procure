@@ -4,6 +4,13 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getAccessTokenSilently } from '$lib/authService'; // Import getAccessTokenSilently
+	import type { RequisitionItem as BaseRequisitionItem } from '../../../lib/types';
+
+	// Local type for form items, extending base for UI specific fields
+	interface FormRequisitionItem extends BaseRequisitionItem {
+		total: number | null; // UI calculated field
+		// specificationSheetFile and itemImageFile are already in BaseRequisitionItem as per last change to types.ts
+	}
 
 	let requisition = {
 		requesterId: '', // Should be pre-filled or selected (e.g. logged in user)
@@ -20,10 +27,13 @@
 				description: '',
 				quantity: 1,
 				unit: 'unit',
-				unitPrice: null as number | null,
-				total: 0 as number | null
+				estimated_unit_price: null as number | null,
+				total: 0 as number | null,
+				specification_text: '',
+				specificationSheetFile: null as File | null,
+				itemImageFile: null as File | null
 			}
-		],
+		] as FormRequisitionItem[],
 		notes: '',
 		status: 'draft' // Initial status
 	};
@@ -50,7 +60,16 @@
 	function addItem() {
 		requisition.items = [
 			...requisition.items,
-			{ description: '', quantity: 1, unit: 'unit', unitPrice: null as number | null, total: 0 as number | null }
+			{ 
+				description: '', 
+				quantity: 1, 
+				unit: 'unit', 
+				estimated_unit_price: null as number | null, 
+				total: 0 as number | null,
+				specification_text: '',
+				specificationSheetFile: null as File | null,
+				itemImageFile: null as File | null
+			}
 		];
 	}
 
@@ -59,9 +78,9 @@
 		calculateTotals();
 	}
 
-	function calculateItemTotal(item: any) {
-		if (item.quantity && typeof item.unitPrice === 'number') {
-			item.total = item.quantity * item.unitPrice;
+	function calculateItemTotal(item: FormRequisitionItem) {
+		if (item.quantity && typeof item.estimated_unit_price === 'number') {
+			item.total = item.quantity * item.estimated_unit_price;
 		} else {
 			item.total = 0;
 		}
@@ -109,11 +128,11 @@
 				description: item.description,
 				quantity: Number(item.quantity),
 				unit: item.unit,
-				estimated_unit_price: typeof item.unitPrice === 'number' ? Number(item.unitPrice) : 0,
+				estimated_unit_price: typeof item.estimated_unit_price === 'number' ? Number(item.estimated_unit_price) : 0,
 				freight_cost: 0,
 				insurance_cost: 0,
 				installation_cost: 0,
-				value: typeof item.unitPrice === 'number' ? Number(item.unitPrice) * item.quantity : 0
+				value: typeof item.estimated_unit_price === 'number' ? Number(item.estimated_unit_price) * item.quantity : 0
 			}))
 		};
 
@@ -160,9 +179,12 @@
 						description: '',
 						quantity: 1,
 						unit: 'unit',
-						unitPrice: null,
-						total: 0
-					}],
+						estimated_unit_price: null as number | null,
+						total: 0 as number | null,
+						specification_text: '',
+						specificationSheetFile: null as File | null,
+						itemImageFile: null as File | null
+					}] as FormRequisitionItem[],
 					notes: '',
 					status: 'draft'
 				};
@@ -261,8 +283,32 @@
 						</div>
 						<div>
 							<label for={`item_unit_price_${i}`} class="block text-sm font-medium text-gray-700">Estimated Unit Price</label>
-							<input type="number" step="0.01" min="0" id={`item_unit_price_${i}`} bind:value={item.unitPrice} on:input={() => calculateItemTotal(item)} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-						</div>
+							<input type="number" step="0.01" id={`item_estimated_unit_price_${i}`} bind:value={item.estimated_unit_price} on:input={() => calculateItemTotal(item)} placeholder="e.g., 1500.00" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+					</div>
+
+					<!-- Item Specification Text (Full Width for this item's grid) -->
+					<div class="md:col-span-2">
+						<label for={`item_spec_text_${i}`} class="block text-sm font-medium text-gray-700">Item Specification</label>
+						<textarea id={`item_spec_text_${i}`} bind:value={item.specification_text} rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Detailed specification of the item..."></textarea>
+					</div>
+
+					<!-- Specification Sheet Upload -->
+					<div>
+						<label for={`item_spec_sheet_${i}`} class="block text-sm font-medium text-gray-700">Spec Sheet (Optional)</label>
+						<input type="file" id={`item_spec_sheet_${i}`} on:change={(e) => item.specificationSheetFile = (e.target as HTMLInputElement).files?.[0] ?? null} accept=".pdf,.doc,.docx,.txt,.xls,.xlsx" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+						{#if item.specificationSheetFile}
+							<p class="mt-1 text-xs text-gray-500">Selected: {item.specificationSheetFile.name}</p>
+						{/if}
+					</div>
+
+					<!-- Item Image Upload -->
+					<div>
+						<label for={`item_image_${i}`} class="block text-sm font-medium text-gray-700">Item Image (Optional)</label>
+						<input type="file" id={`item_image_${i}`} on:change={(e) => item.itemImageFile = (e.target as HTMLInputElement).files?.[0] ?? null} accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+						{#if item.itemImageFile}
+							<p class="mt-1 text-xs text-gray-500">Selected: {item.itemImageFile.name}</p>
+						{/if}
+					</div>
 					</div>
 					<div>
 						<label for={`item_total_${i}`} class="block text-sm font-medium text-gray-700">Item Total</label>

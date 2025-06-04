@@ -133,7 +133,9 @@ func (h *TenderHandler) GetTenderByID(w http.ResponseWriter, r *http.Request) {
 	tenderID := chi.URLParam(r, "id") // Use chi.URLParam to get the ID
 	var tender models.Tender
 
-	if err := h.DB.First(&tender, tenderID).Error; err != nil {
+	// Preload Requisition and its Items. 
+	// The Tender model must have a 'Requisition' field, and the Requisition model an 'Items' field.
+	if err := h.DB.Preload("Requisition").Preload("Requisition.Items").First(&tender, tenderID).Error; err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		if err == gorm.ErrRecordNotFound {
 			w.WriteHeader(http.StatusNotFound)

@@ -5,6 +5,7 @@
 
 <script lang="ts">
   import type { PageData } from './$types';
+  import { user } from '$lib/store'; // Import the user store
 
   export let data: PageData;
 
@@ -16,9 +17,11 @@
 <div class="container mx-auto py-8">
 	<div class="flex justify-between items-center mb-6">
 		<h1 class="text-3xl font-semibold">Tenders</h1>
-		<a href="/tenders/new" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-			+ New Tender
-		</a>
+		{#if $user && ($user.role === 'procurement_officer' || $user.role === 'admin')}
+			<a href="/tenders/new" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+				+ New Tender
+			</a>
+		{/if}
 	</div>
 
   {#if loading}
@@ -28,7 +31,7 @@
       <p>Error loading tenders: {error}</p>
     </div>
   {:else if tenders && tenders.length === 0}
-    <p class="text-center py-10">No tenders found. <a href="/tenders/new" class="link">Add one?</a></p>
+    <p class="text-center py-10">No tenders found. {#if $user && ($user.role === 'procurement_officer' || $user.role === 'admin')}<a href="/tenders/new" class="link">Add one?</a>{/if}</p>
   {:else if tenders}
     <div class="bg-white shadow-md rounded-lg overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">

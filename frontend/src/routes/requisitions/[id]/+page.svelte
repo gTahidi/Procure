@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/stores';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -42,7 +43,7 @@
 								 data.requisition.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
 								 data.requisition.status === 'Draft' ? 'bg-blue-100 text-blue-800' :
 								'bg-gray-100 text-gray-800'}`}>
-					{data.requisition.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+					{data.requisition.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
 				</span>
 			</div>
 			<div>
@@ -52,7 +53,7 @@
 			{#if data.requisition.type}
 			<div>
 				<h3 class="text-lg font-medium text-gray-700 mb-1">Type</h3>
-				<p class="text-gray-600">{data.requisition.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</p>
+				<p class="text-gray-600">{data.requisition.type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}</p>
 			</div>
 			{/if}
 			{#if data.requisition.aac}
@@ -127,10 +128,12 @@
 		</div>
 	</div>
 </div>
-{:else if data.error}
+
+
+{:else if $page.error}
 	<div class="container mx-auto py-8 px-4 text-center">
 		<h1 class="text-2xl font-semibold text-red-600">Error Loading Requisition</h1>
-		<p class="text-gray-600">{data.error.message || 'An unknown error occurred.'}</p>
+		<p class="text-gray-600">{$page.error.message || 'An unknown error occurred.'}</p>
 		<a href="/requisitions" class="mt-4 inline-block px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 no-underline">
 			Back to Requisitions List
 		</a>

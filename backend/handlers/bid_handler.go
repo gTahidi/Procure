@@ -2,8 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"procurement/models"
 	"strconv"
 	"strings"
@@ -85,34 +89,181 @@ func (h *BidHandler) CreateBid(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("CreateBid: TenderID %d is open for bidding.", tenderID)
 
-	// Parse the request body for bid details
-	var bidInput models.Bid
-	if err := json.NewDecoder(r.Body).Decode(&bidInput); err != nil {
-		RespondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
+	// Define max upload size (e.g., 10MB per file, overall 50MB)
+	const maxFileSize = 10 * 1024 * 1024 // 10 MB
+	// r.ParseMultipartForm needs to be called before accessing form data
+	if err := r.ParseMultipartForm(50 * 1024 * 1024); err != nil { // 50MB total max size
+		RespondWithError(w, http.StatusBadRequest, "Failed to parse multipart form: "+err.Error())
 		return
 	}
 
-	// Validate bid input (e.g., BidAmount)
-	if bidInput.BidAmount <= 0 {
-		RespondWithError(w, http.StatusBadRequest, "Bid amount must be greater than zero.")
+	var bidInput models.Bid
+	// General bid fields (non-item related)
+	bidInput.Notes = getFormValuePointer(r, "notes")
+	// Add other general fields like validity period if they are added to the form and model
+
+	// Bid items are expected as a JSON string in a field named 'items_json'
+	itemsJSON := r.FormValue("items_json")
+	if itemsJSON == "" {
+		RespondWithError(w, http.StatusBadRequest, "Bid items (items_json) are required.")
+		return
+	}
+
+	var bidItems []models.BidItem
+	if err := json.Unmarshal([]byte(itemsJSON), &bidItems); err != nil {
+		RespondWithError(w, http.StatusBadRequest, "Invalid format for bid items (items_json): "+err.Error())
+		return
+	}
+
+	if len(bidItems) == 0 {
+		RespondWithError(w, http.StatusBadRequest, "At least one bid item is required.")
 		return
 	}
 
 	// Populate bid details
 	bidInput.TenderID = tenderID
-	bidInput.SupplierID = currentUser.ID // This is the ID of the authenticated supplier
-	// bidInput.Status is defaulted to 'submitted' by the model
-	// bidInput.SubmissionDate is defaulted by autoCreateTime
+	bidInput.SupplierID = currentUser.ID
+	// bidInput.Status is defaulted by model
+	// bidInput.BidAmount might be calculated or set based on items or a general field
+	// For now, let's assume it might still be a general field or we'll calculate it later.
+	bidAmountStr := r.FormValue("bid_amount") // If still sending overall bid amount
+	if bidAmountStr != "" {
+		bidAmountFloat, err := strconv.ParseFloat(bidAmountStr, 64)
+		if err != nil {
+			RespondWithError(w, http.StatusBadRequest, "Invalid bid_amount format: "+err.Error())
+			return
+		}
+		bidInput.BidAmount = bidAmountFloat
+	} else if len(bidItems) > 0 {
+		// If no overall bid_amount, calculate from items
+		var totalCalculatedAmount float64
+		for _, item := range bidItems {
+			totalCalculatedAmount += item.OfferedUnitPrice * item.Quantity
+		}
+		bidInput.BidAmount = totalCalculatedAmount
+	}
 
-	// Save the bid to the database
-	if err := h.DB.Create(&bidInput).Error; err != nil {
-		RespondWithError(w, http.StatusInternalServerError, "Failed to create bid: "+err.Error())
+	if bidInput.BidAmount <= 0 {
+		RespondWithError(w, http.StatusBadRequest, "Total bid amount must be greater than zero.")
 		return
 	}
-	log.Printf("CreateBid: Successfully created BidID: %d for TenderID: %d by SupplierID: %d", bidInput.ID, tenderID, currentUser.ID)
 
-	// Respond with the created bid
-	RespondWithJSON(w, http.StatusCreated, bidInput)
+	// Start a transaction
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		RespondWithError(w, http.StatusInternalServerError, "Failed to start database transaction: "+tx.Error.Error())
+		return
+	}
+
+	// Save the main Bid record first to get its ID
+	if err := tx.Create(&bidInput).Error; err != nil {
+		tx.Rollback()
+		RespondWithError(w, http.StatusInternalServerError, "Failed to create bid (main record): "+err.Error())
+		return
+	}
+	log.Printf("CreateBid: Successfully created BidID: %d for TenderID: %d by SupplierID: %d (pre-items)", bidInput.ID, tenderID, currentUser.ID)
+
+	// Process and save BidItems and their files
+	for i := range bidItems {
+		bidItems[i].BidID = bidInput.ID // Link item to the created Bid
+
+		// Handle Specification Sheet File
+		specSheetKey := fmt.Sprintf("item_spec_sheet_%d", i)
+		file, header, err := r.FormFile(specSheetKey)
+		if err == nil { // File is present
+			defer file.Close()
+			if header.Size > maxFileSize {
+				tx.Rollback()
+				RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Specification sheet for item %d (%s) exceeds max size of %dMB", i+1, header.Filename, maxFileSize/1024/1024))
+				return
+			}
+			// Ensure directory exists: ./uploads/bids/{bid_id}/items/{item_index}/specs/
+			// Using item.ID might be problematic if it's not set yet, so use index or generate UUID for filename
+			filePath := filepath.Join(".", "uploads", "bids", strconv.FormatInt(bidInput.ID, 10), "items", strconv.Itoa(i), "specs", SanitizeFilename(header.Filename))
+			if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+				tx.Rollback()
+				RespondWithError(w, http.StatusInternalServerError, "Failed to create directory for spec sheet: "+err.Error())
+				return
+			}
+			dst, err := os.Create(filePath)
+			if err != nil {
+				tx.Rollback()
+				RespondWithError(w, http.StatusInternalServerError, "Failed to create file for spec sheet: "+err.Error())
+				return
+			}
+			defer dst.Close()
+			if _, err := io.Copy(dst, file); err != nil {
+				tx.Rollback()
+				RespondWithError(w, http.StatusInternalServerError, "Failed to save spec sheet: "+err.Error())
+				return
+			}
+			bidItems[i].SpecificationSheetURL = &filePath
+		} else if err != http.ErrMissingFile {
+			tx.Rollback()
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Error processing spec sheet for item %d: %s", i+1, err.Error()))
+			return
+		}
+
+		// Handle Item Image File
+		itemImageKey := fmt.Sprintf("item_image_%d", i)
+		file, header, err = r.FormFile(itemImageKey)
+		if err == nil { // File is present
+			defer file.Close()
+			if header.Size > maxFileSize {
+				tx.Rollback()
+				RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Item image for item %d (%s) exceeds max size of %dMB", i+1, header.Filename, maxFileSize/1024/1024))
+				return
+			}
+			filePath := filepath.Join(".", "uploads", "bids", strconv.FormatInt(bidInput.ID, 10), "items", strconv.Itoa(i), "images", SanitizeFilename(header.Filename))
+			if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+				tx.Rollback()
+				RespondWithError(w, http.StatusInternalServerError, "Failed to create directory for item image: "+err.Error())
+				return
+			}
+			dst, err := os.Create(filePath)
+			if err != nil {
+				tx.Rollback()
+				RespondWithError(w, http.StatusInternalServerError, "Failed to create file for item image: "+err.Error())
+				return
+			}
+			defer dst.Close()
+			if _, err := io.Copy(dst, file); err != nil {
+				tx.Rollback()
+				RespondWithError(w, http.StatusInternalServerError, "Failed to save item image: "+err.Error())
+				return
+			}
+			bidItems[i].ItemImageURL = &filePath
+		} else if err != http.ErrMissingFile {
+			tx.Rollback()
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Error processing item image for item %d: %s", i+1, err.Error()))
+			return
+		}
+
+		// Save the BidItem
+		if err := tx.Create(&bidItems[i]).Error; err != nil {
+			tx.Rollback()
+			RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to save bid item %d: %s", i+1, err.Error()))
+			return
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		RespondWithError(w, http.StatusInternalServerError, "Failed to commit transaction: "+err.Error())
+		return
+	}
+
+	log.Printf("CreateBid: Successfully created BidID: %d with %d items for TenderID: %d by SupplierID: %d", bidInput.ID, len(bidItems), tenderID, currentUser.ID)
+
+	// Reload the bid with its items to return the full object
+	var finalBid models.Bid
+	if err := h.DB.Preload("Items").First(&finalBid, bidInput.ID).Error; err != nil {
+	    log.Printf("Error reloading bid with items: %v. Returning bid without items.", err)
+	    RespondWithJSON(w, http.StatusCreated, bidInput) // Fallback to returning bidInput without items if reload fails
+	    return
+	}
+
+	RespondWithJSON(w, http.StatusCreated, finalBid)
 }
 
 // ListTenderBids handles listing all bids for a specific tender.
