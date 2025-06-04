@@ -1,8 +1,28 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import type { PageData } from './$types';
+	import { user } from '$lib/store';
+	import { getAccessTokenSilently } from '$lib/authService';
+	import { PUBLIC_API_BASE_URL } from '$env/static/public';
+	import { invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
 
 	export let data: PageData;
+
+	onMount(() => {
+		console.log('MOUNTED: Current user object:', $user);
+		console.log('MOUNTED: User role (direct):', $user?.role);
+		console.log('MOUNTED: Is admin (direct check)?:', $user?.role === 'admin');
+		console.log('MOUNTED: User ID (for 2nd approval):', $user?.id);
+		console.log('MOUNTED: Requisition data on mount:', data.requisition);
+		console.log('MOUNTED: Requisition status on mount:', data.requisition?.status);
+		console.log('MOUNTED: Requisition approver_one_id:', data.requisition?.approver_one_id);
+	});
+
+	let rejectionReason = '';
+	let showRejectionModal = false;
+	let isProcessing = false;
+	let apiError = '';
 
 	// Helper to format date string (e.g., YYYY-MM-DD)
 	function formatDate(dateString: string | undefined): string {
@@ -11,11 +31,70 @@
 		return date.toLocaleDateString('en-CA'); // YYYY-MM-DD format
 	}
 
-	// The requisition object is now directly from data prop
-	// $: requisition = data.requisition; // This is reactive, good if data can change after load
-	// For initial load, direct access is fine too, but reactive is safer for future updates.
-	// Let's use direct access for now and ensure +page.ts handles errors by throwing SvelteKit errors.
+	async function handleRequisitionAction(action: 'approve' | 'reject', reason?: string) {
+		if (!data.requisition?.id) return;
+		isProcessing = true;
+		apiError = '';
+		const token = await getAccessTokenSilently();
+		if (!token) {
+			apiError = 'Authentication error. Please log in again.';
+			isProcessing = false;
+			return;
+		}
 
+		try {
+			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/requisitions/${data.requisition.id}/action`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`
+				},
+				body: JSON.stringify({ action, reason })
+			});
+
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.message || `Failed to ${action} requisition: ${response.statusText}`);
+			}
+
+			// alert(`Requisition successfully ${action}d.`);
+			showRejectionModal = false; // Close modal if open
+			rejectionReason = ''; // Clear reason
+			await invalidateAll(); // Refetch all data for the current page
+		} catch (err: any) {
+			console.error(`Error ${action}ing requisition:`, err);
+			apiError = err.message || `An unexpected error occurred while ${action}ing.`;
+			// alert(`Error: ${apiError}`);
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	function promptReject() {
+		apiError = ''; // Clear previous errors
+		rejectionReason = ''; // Clear previous reason
+		showRejectionModal = true;
+	}
+
+	function submitRejection() {
+		if (!rejectionReason.trim()) {
+			apiError = 'Rejection reason cannot be empty.';
+			return;
+		}
+		handleRequisitionAction('reject', rejectionReason.trim());
+	}
+
+	// Reactive statements to determine button visibility
+	$: isAdmin = $user?.role === 'admin';
+	$: canPerformFirstApproval = isAdmin && (data.requisition?.status === 'pending_approval_1' || data.requisition?.status === 'submitted_for_approval');
+	$: canPerformSecondApproval = isAdmin && 
+							 data.requisition?.status === 'pending_approval_2' && 
+							 $user?.id !== data.requisition?.approver_one_id;
+	$: canRejectFirstStep = canPerformFirstApproval;
+	$: canRejectSecondStep = canPerformSecondApproval;
+
+	// Display rejection reason if present
+	$: displayRejectionReason = data.requisition?.status === 'rejected' && data.requisition?.rejection_reason;
 </script>
 
 <svelte:head>
@@ -39,9 +118,9 @@
 				<h3 class="text-lg font-medium text-gray-700 mb-1">Status</h3>
 				<span class={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full 
 								${data.requisition.status === 'Approved' ? 'bg-green-100 text-green-800' : 
-								 data.requisition.status === 'Pending Approval' || data.requisition.status === 'Submitted for Approval' ? 'bg-yellow-100 text-yellow-800' : 
-								 data.requisition.status === 'Rejected' ? 'bg-red-100 text-red-800' : 
-								 data.requisition.status === 'Draft' ? 'bg-blue-100 text-blue-800' :
+								 data.requisition.status === 'pending_approval_1' || data.requisition.status === 'pending_approval_2' || data.requisition.status === 'Pending Approval' || data.requisition.status === 'Submitted for Approval' ? 'bg-yellow-100 text-yellow-800' : 
+					 data.requisition.status === 'rejected' ? 'bg-red-100 text-red-800' : 
+					 data.requisition.status === 'Draft' ? 'bg-blue-100 text-blue-800' :
 								'bg-gray-100 text-gray-800'}`}>
 					{data.requisition.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
 				</span>
@@ -53,7 +132,7 @@
 			{#if data.requisition.type}
 			<div>
 				<h3 class="text-lg font-medium text-gray-700 mb-1">Type</h3>
-				<p class="text-gray-600">{data.requisition.type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}</p>
+				<p class="text-gray-600">{data.requisition.type?.replace(/_/g, ' ')?.replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'N/A'}</p>
 			</div>
 			{/if}
 			{#if data.requisition.aac}
@@ -104,7 +183,35 @@
 			{/if} -->
 		</div>
 
-		<div class="mt-8 pt-6 border-t border-gray-200 flex justify-end space-x-3">
+		<!-- Display Rejection Reason if applicable -->
+		{#if displayRejectionReason}
+		<div class="mt-6 p-4 border-l-4 border-red-500 bg-red-50 rounded-md">
+			<h4 class="text-md font-semibold text-red-700">Rejection Reason:</h4>
+			<p class="text-red-600 whitespace-pre-line">{data.requisition.rejection_reason}</p>
+		</div>
+		{/if}
+
+		<div class="mt-8 pt-6 border-t border-gray-200 flex flex-wrap justify-end gap-3">
+			<!-- Admin Action Buttons -->
+			{#if canPerformFirstApproval}
+				<button on:click={() => handleRequisitionAction('approve')} 
+						class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+						disabled={isProcessing}>Approve (1st Step)
+				</button>
+			{/if}
+			{#if canPerformSecondApproval}
+				<button on:click={() => handleRequisitionAction('approve')} 
+						class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+						disabled={isProcessing}>Approve (2nd Step)
+				</button>
+			{/if}
+			{#if canRejectFirstStep || canRejectSecondStep}
+				<button on:click={promptReject} 
+					class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+					disabled={isProcessing}>Reject
+				</button>
+			{/if}
+
 			<a href="/requisitions" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 no-underline">
 				Back to List
 			</a>
@@ -116,16 +223,46 @@
 				</a>
 			{/if}
 
-			{#if data.requisition.status === 'Draft'}
+			{#if data.requisition.status === 'Draft' && !isAdmin}
 			<button class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">
 				Edit Requisition
 			</button>
-			{:else if data.requisition.status !== 'Approved'} <!-- Only show disabled edit if not Draft and not Approved (where Create Tender shows) -->
+			{:else if data.requisition.status !== 'Approved' && !isAdmin} <!-- Only show disabled edit if not Draft and not Approved (where Create Tender shows) -->
 			<button class="px-4 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed" disabled>
 				Edit Requisition
 			</button>
 			{/if}
 		</div>
+
+		<!-- Rejection Reason Modal -->
+		{#if showRejectionModal}
+		<div class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50 flex justify-center items-center p-4" on:click|self={() => showRejectionModal = false}>
+		  <div class="relative p-6 border w-full max-w-lg shadow-xl rounded-lg bg-white" on:click|stopPropagation>
+			<h3 class="text-xl font-semibold leading-6 text-gray-900 mb-4">Provide Rejection Reason</h3>
+			<div class="mt-2">
+			  <textarea bind:value={rejectionReason}
+						class="w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+						rows="4"
+						placeholder="Enter reason for rejection (required)..."></textarea>
+			</div>
+			{#if apiError && !rejectionReason.trim() && showRejectionModal}
+			  <p class="text-sm text-red-600 mt-1">{apiError}</p>
+			{/if}
+			<div class="mt-6 flex justify-end space-x-3">
+			  <button type="button" 
+					  on:click={() => { showRejectionModal = false; apiError = ''; }}
+					  class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50"
+					  disabled={isProcessing}>Cancel</button>
+			  <button type="button" 
+					  on:click={submitRejection} 
+					  class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+					  disabled={isProcessing || !rejectionReason.trim()}>{isProcessing ? 'Submitting...' : 'Submit Rejection'}</button>
+			</div>
+		  </div>
+		</div>
+		{/if}
+		<!-- End Rejection Reason Modal -->
+
 	</div>
 </div>
 

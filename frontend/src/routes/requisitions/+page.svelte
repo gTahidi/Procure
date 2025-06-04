@@ -6,9 +6,11 @@
 <div class="container mx-auto py-8">
 	<div class="flex justify-between items-center mb-6">
 		<h1 class="text-3xl font-semibold">Requisitions</h1>
-		<a href="/requisitions/new" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-			+ New Requisition
-		</a>
+		{#if $user && $user.role === 'requester'}
+			<a href="/requisitions/new" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+				+ New Requisition
+			</a>
+		{/if}
 	</div>
 
 	<div class="bg-white shadow-md rounded-lg overflow-x-auto">
@@ -71,6 +73,7 @@
 
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { user } from '$lib/store'; // Import the user store
 
 	export let data: PageData;
 </script>

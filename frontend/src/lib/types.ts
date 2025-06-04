@@ -52,6 +52,11 @@ export interface Requisition {
   title?: string;
   description?: string;
   // Add other fields from your backend model as needed
+  approver_one_id?: number | null;
+  approved_one_at?: string | null;
+  approver_two_id?: number | null;
+  approved_two_at?: string | null;
+  rejection_reason?: string | null;
   items: RequisitionItem[];
 }
 

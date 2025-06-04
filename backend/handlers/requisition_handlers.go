@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"procurement/database" // Module name 'procurement' then path
 	"procurement/models"
-	// "time" // No longer explicitly needed for CreatedAt if GORM handles it
+	"time" // Needed for setting approval timestamps
 	"gorm.io/gorm" // Added for gorm.ErrRecordNotFound or other GORM specific needs
 	"strconv"      // Added for strconv.ParseInt
 	"strings"      // Added for strings.EqualFold
@@ -160,12 +160,12 @@ func ListRequisitionsHandler(w http.ResponseWriter, r *http.Request) {
 	// Check user role
 	// TODO: Make "procurement_officer" a constant or configurable value
 	// Use case-insensitive comparison for the role
-	if strings.EqualFold(user.Role, "procurement_officer") {
+	if strings.EqualFold(user.Role, "procurement_officer") || strings.EqualFold(user.Role, "admin") {
 		// Procurement officers see all requisitions
-		log.Printf("INFO: User %d (Role: %s) is a procurement officer, fetching all requisitions.", userID, user.Role)
+		log.Printf("INFO: User %d (Role: %s) is a procurement officer or admin, fetching all requisitions.", userID, user.Role)
 	} else {
 		// Other users see only their own requisitions
-		log.Printf("INFO: User %d (Role: %s) is not a procurement officer, fetching only their requisitions.", userID, user.Role)
+		log.Printf("INFO: User %d (Role: %s) is not a procurement officer or admin, fetching only their requisitions.", userID, user.Role)
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -239,13 +239,13 @@ func GetRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Role-based access control
 	// TODO: Make "procurement_officer" a constant or configurable value
-	if strings.EqualFold(user.Role, "procurement_officer") {
+	if strings.EqualFold(user.Role, "procurement_officer") || strings.EqualFold(user.Role, "admin") {
 		// Procurement officers can view any requisition by ID
-		log.Printf("INFO: GetRequisitionHandler: User %d (Role: %s) is a procurement officer. Accessing requisition ID %d.", userID, user.Role, requisitionID)
+		log.Printf("INFO: GetRequisitionHandler: User %d (Role: %s) is a procurement officer or admin. Accessing requisition ID %d.", userID, user.Role, requisitionID)
 		query = query.Where("id = ?", requisitionID)
 	} else {
 		// Other users can only view their own requisitions
-		log.Printf("INFO: GetRequisitionHandler: User %d (Role: %s) is not a procurement officer. Accessing own requisition ID %d.", userID, user.Role, requisitionID)
+		log.Printf("INFO: GetRequisitionHandler: User %d (Role: %s) is not a procurement officer or admin. Accessing own requisition ID %d.", userID, user.Role, requisitionID)
 		query = query.Where("id = ? AND user_id = ?", requisitionID, userID)
 	}
 
@@ -270,3 +270,193 @@ func GetRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 	RespondWithJSON(w, http.StatusOK, requisition)
 	log.Printf("INFO: Successfully retrieved requisition ID %d for user ID %d (Role: %s)", requisition.ID, userID, user.Role)
 }
+
+// RequisitionActionPayload defines the structure for the request body of requisition actions
+type RequisitionActionPayload struct {
+	Action string `json:"action"` // "approve" or "reject"
+	Reason string `json:"reason,omitempty"` // Required if action is "reject"
+}
+
+// HandleRequisitionAction handles POST requests to approve or reject a requisition
+func HandleRequisitionAction(w http.ResponseWriter, r *http.Request) {
+	log.Println("DEBUG: HandleRequisitionAction: Entered function.")
+	db := database.GetDB()
+	if db == nil {
+		log.Println("ERROR: HandleRequisitionAction: Database not initialized")
+		RespondWithError(w, http.StatusInternalServerError, "Database connection not initialized")
+		return
+	}
+
+	// Get authenticated user ID from context
+	userIDFromCtx := r.Context().Value("userID")
+	if userIDFromCtx == nil {
+		log.Println("ERROR: HandleRequisitionAction: userID not found in context. Unauthorized.")
+		RespondWithError(w, http.StatusUnauthorized, "Unauthorized: User ID not found in request context.")
+		return
+	}
+
+	adminID, okUserID := userIDFromCtx.(int64)
+	if !okUserID || adminID == 0 {
+		log.Printf("ERROR: HandleRequisitionAction: Invalid userID type in context. userIDFromCtx: %v", userIDFromCtx)
+		RespondWithError(w, http.StatusForbidden, "Forbidden: Invalid user identifier.")
+		return
+	}
+
+	// Fetch the admin user from DB to get their role
+	var adminUser models.User
+	if err := db.First(&adminUser, adminID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("ERROR: HandleRequisitionAction: Admin user with ID %d not found in DB.", adminID)
+			RespondWithError(w, http.StatusUnauthorized, "Unauthorized: Admin user not found.")
+		} else {
+			log.Printf("ERROR: HandleRequisitionAction: Error fetching admin user %d: %v", adminID, err)
+			RespondWithError(w, http.StatusInternalServerError, "Error verifying admin user.")
+		}
+		return
+	}
+	adminRole := adminUser.Role
+
+	// Check if the user is an admin
+	// TODO: Use a constant for "admin" role
+	if !strings.EqualFold(adminRole, "admin") {
+		log.Printf("WARN: HandleRequisitionAction: User %d (Role: %s) attempted to perform admin action.", adminID, adminRole)
+		RespondWithError(w, http.StatusForbidden, "Forbidden: This action requires admin privileges.")
+		return
+	}
+
+	// Get requisition ID from URL parameter
+	requisitionIDStr := chi.URLParam(r, "id")
+	if requisitionIDStr == "" {
+		RespondWithError(w, http.StatusBadRequest, "Requisition ID is required")
+		return
+	}
+	requisitionID, err := strconv.ParseInt(requisitionIDStr, 10, 64)
+	if err != nil {
+		log.Printf("ERROR: HandleRequisitionAction: Invalid Requisition ID format '%s': %v", requisitionIDStr, err)
+		RespondWithError(w, http.StatusBadRequest, "Invalid Requisition ID format")
+		return
+	}
+	log.Printf("DEBUG: HandleRequisitionAction: Requisition ID parsed: %d. Admin ID: %d. Admin Role: %s", requisitionID, adminID, adminRole)
+
+	// Decode the request body
+	var payload RequisitionActionPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Printf("ERROR: HandleRequisitionAction: Failed to decode request body: %v\n", err)
+		RespondWithError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
+		return
+	}
+	defer r.Body.Close()
+	log.Printf("DEBUG: HandleRequisitionAction: Payload decoded successfully: Action='%s', Reason='%s'", payload.Action, payload.Reason)
+
+	// Validate action
+	payload.Action = strings.ToLower(payload.Action)
+	if payload.Action != "approve" && payload.Action != "reject" {
+		RespondWithError(w, http.StatusBadRequest, "Invalid action specified. Must be 'approve' or 'reject'.")
+		return
+	}
+
+	if payload.Action == "reject" && strings.TrimSpace(payload.Reason) == "" {
+		RespondWithError(w, http.StatusBadRequest, "Rejection reason is required when action is 'reject'.")
+		return
+	}
+
+	var requisition models.Requisition
+	tx := db.Begin()
+	if tx.Error != nil {
+		log.Printf("ERROR: HandleRequisitionAction: Failed to begin transaction: %v\n", tx.Error)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to process request: "+tx.Error.Error())
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("PANIC: HandleRequisitionAction: Recovered from panic: %v\n", r)
+			// RespondWithError might not be possible if headers already sent
+			return
+		}
+		if tx.Error != nil {
+			log.Printf("INFO: HandleRequisitionAction: Rolling back transaction due to error: %v\n", tx.Error)
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.First(&requisition, requisitionID).Error; err != nil { // Fetched within transaction
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			RespondWithError(w, http.StatusNotFound, "Requisition not found.")
+		} else {
+			log.Printf("ERROR: HandleRequisitionAction: Failed to query requisition ID %d: %v\n", requisitionID, err)
+			RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve requisition: "+err.Error())
+		}
+		tx.Rollback() // Explicit rollback
+		return
+	}
+
+	// Perform action based on current status
+	log.Printf("DEBUG: HandleRequisitionAction: Validated payload. Action: %s. Requisition ID: %d. Current Requisition Status from DB: %s", payload.Action, requisition.ID, requisition.Status)
+	switch payload.Action {
+	case "approve":
+		switch requisition.Status {
+		case models.RequisitionStatusPendingApproval1, "submitted_for_approval": // Accept both for first approval
+			// Ensure it's not already approved by this admin if it was somehow in pending_approval_1 but had an approver
+			if requisition.ApproverOneID != nil && *requisition.ApproverOneID == adminID && requisition.Status == models.RequisitionStatusPendingApproval2 {
+				log.Printf("WARN: HandleRequisitionAction: Admin %d attempted to re-approve requisition %d which they already first-approved.", adminID, requisitionID)
+				RespondWithError(w, http.StatusForbidden, "You have already performed the first approval.")
+				tx.Rollback()
+				return
+			}
+			requisition.ApproverOneID = &adminID
+			now := time.Now()
+			requisition.ApprovedOneAt = &now
+			requisition.Status = models.RequisitionStatusPendingApproval2
+			log.Printf("INFO: HandleRequisitionAction: Requisition %d approved (1st approval) by admin %d. Status -> %s\n", requisitionID, adminID, requisition.Status)
+		case models.RequisitionStatusPendingApproval2:
+			if requisition.ApproverOneID != nil && *requisition.ApproverOneID == adminID {
+				RespondWithError(w, http.StatusForbidden, "Second approval must be by a different admin.")
+				tx.Rollback()
+				return
+			}
+			requisition.ApproverTwoID = &adminID
+			now := time.Now()
+			requisition.ApprovedTwoAt = &now
+			requisition.Status = models.RequisitionStatusApproved
+			log.Printf("INFO: HandleRequisitionAction: Requisition %d approved (2nd approval) by admin %d. Status -> %s\n", requisitionID, adminID, requisition.Status)
+		default:
+			log.Printf("ERROR: HandleRequisitionAction: Attempt to approve requisition %d in unexpected status '%s' by admin %d.", requisitionID, requisition.Status, adminID)
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Cannot approve requisition in status '%s'.", requisition.Status))
+			tx.Rollback() // Ensure rollback
+			return
+		}
+	case "reject":
+		if requisition.Status == models.RequisitionStatusApproved || requisition.Status == models.RequisitionStatusTendered || requisition.Status == models.RequisitionStatusClosed {
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("Requisition cannot be rejected. Current status: %s", requisition.Status))
+			tx.Rollback()
+			return
+		}
+		// For simplicity, any admin can reject at pending_approval_1 or pending_approval_2 stage.
+		// We could record who rejected it if needed, e.g., by setting ApproverOneID/TwoID with a negative value or a dedicated RejectedByID field.
+		requisition.Status = models.RequisitionStatusRejected
+		requisition.RejectionReason = &payload.Reason
+		// Optionally, clear approval fields if it's rejected after first approval
+		// requisition.ApproverOneID = nil 
+		// requisition.ApprovedOneAt = nil
+		log.Printf("INFO: HandleRequisitionAction: Requisition %d rejected by admin %d. Reason: %s. Status -> %s\n", requisitionID, adminID, payload.Reason, requisition.Status)
+	}
+
+	if err := tx.Save(&requisition).Error; err != nil {
+		log.Printf("ERROR: HandleRequisitionAction: Failed to save requisition ID %d: %v\n", requisitionID, err)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to update requisition: "+err.Error())
+		tx.Rollback() // Explicit rollback
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("ERROR: HandleRequisitionAction: Failed to commit transaction for requisition ID %d: %v\n", requisitionID, err)
+		RespondWithError(w, http.StatusInternalServerError, "Failed to finalize requisition update: "+err.Error())
+		// tx.Rollback() is implicitly handled by defer if Commit fails and sets tx.Error
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, requisition)
+	log.Printf("INFO: HandleRequisitionAction: Successfully processed action '%s' for requisition ID %d by admin %d\n", payload.Action, requisitionID, adminID)
+}
+

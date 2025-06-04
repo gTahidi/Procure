@@ -68,6 +68,7 @@ func main() {
 			authRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
 			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
 			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler) // New route for single requisition
+			authRouter.Post("/requisitions/{id}/action", handlers.HandleRequisitionAction) // Route for approving/rejecting requisitions
 			// Add other authenticated requisition routes here (GET, PUT, DELETE)
 
 			// Register Tender routes
