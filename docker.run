@@ -1,0 +1,1 @@
+docker build   --build-arg VITE_AUTH0_DOMAIN="dev-ewdolj0bwbq50dxr.us.auth0.com"   --build-arg VITE_AUTH0_CLIENT_ID="3k32lJ8QbOswQSI6QtTFzDNyJ3midrKm"   --build-arg VITE_AUTH0_CALLBACK_URL="http://localhost:5173/callback"   --build-arg VITE_AUTH0_AUDIENCE="procurement"   --build-arg VITE_API_BASE_URL="/api"   -t procure-app .

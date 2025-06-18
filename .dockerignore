@@ -1,0 +1,23 @@
+# Git
+.git
+.gitignore
+
+# Node
+frontend/node_modules
+frontend/npm-debug.log
+frontend/.pnpm-debug.log
+frontend/coverage
+frontend/.env
+
+# Go
+backend/procurement.db
+backend/uploads
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

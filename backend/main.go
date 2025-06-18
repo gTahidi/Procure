@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -10,21 +12,50 @@ import (
 
 	"procurement/database"
 	"procurement/handlers"
-	"procurement/models"
 	appMiddleware "procurement/middleware"
+	"procurement/models"
 )
 
+// serveFrontend serves the static SvelteKit application.
+// It uses a catch-all route that first checks for a static file,
+// and if not found, serves the index.html file for SPA routing.
+func serveFrontend(r *chi.Mux, staticPath string) {
+	// The path to the static files built by SvelteKit
+	root := http.Dir(staticPath)
+	indexPath := "index.html"
+
+	// Create a file server handler
+	fs := http.FileServer(root)
+
+	// This is the catch-all handler for the frontend
+	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		// Get the requested file path
+		requestedPath := r.URL.Path
+
+		// Check if the file exists in our static directory
+		filePath := filepath.Join(staticPath, requestedPath)
+		_, err := os.Stat(filePath)
+
+		// If the file doesn't exist, it's likely a client-side route.
+		// In that case, serve the main index.html file.
+		if os.IsNotExist(err) {
+			http.ServeFile(w, r, filepath.Join(staticPath, indexPath))
+			return
+		}
+
+		// If the file exists, let the file server handle it.
+		// This will serve CSS, JS, images, etc.
+		fs.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	// Initialize Database
+	// --- DATABASE INITIALIZATION (No changes needed here) ---
 	if err := database.InitDB(); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	log.Println("Database connection and initialization successful.")
-
-	// Get DB instance for migration
 	db := database.GetDB()
-
-	// Auto-migrate models
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.Requisition{},
@@ -37,72 +68,57 @@ func main() {
 	}
 	log.Println("Database migration successful.")
 
+	// --- ROUTER & MIDDLEWARE SETUP (No changes needed here) ---
 	r := chi.NewRouter()
 
-	// CORS Middleware (assuming github.com/rs/cors)
+	// Note on CORS: When serving from the same origin, CORS is not strictly necessary.
+	// However, it's useful for local development (e.g., Vite dev server at :5173 hitting API at :8080).
+	// For production, you could restrict this or remove it.
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"}, // Add your frontend origin
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"}, // Add any other headers your frontend sends
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
-		Debug:            true, // Enable for debugging CORS issues
+		Debug:            true,
 	})
-	r.Use(c.Handler) // Apply the CORS middleware
+	r.Use(c.Handler)
 
-	// Standard Chi middlewares
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger) // Log server requests
+	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// API routes group
+	// --- ROUTING LOGIC ---
+
+	// **STEP 1: Mount all API routes first.**
+	// All requests to /api/... will be handled by this group.
 	r.Route("/api", func(apiRouter chi.Router) {
-		// Register user routes (e.g., /api/users/sync) - these might be public or have their own auth
 		handlers.RegisterUserRoutes(apiRouter)
-
-		// Authenticated routes group
 		apiRouter.Group(func(authRouter chi.Router) {
-			authRouter.Use(appMiddleware.TokenMiddleware) // Apply the token middleware
-
-			// Register requisition routes
+			authRouter.Use(appMiddleware.TokenMiddleware)
+			// ... all your existing authenticated routes go here ...
 			authRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
 			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
-			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler) // New route for single requisition
-			authRouter.Post("/requisitions/{id}/action", handlers.HandleRequisitionAction) // Route for approving/rejecting requisitions
-			// Add other authenticated requisition routes here (GET, PUT, DELETE)
+			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler)
+			authRouter.Post("/requisitions/{id}/action", handlers.HandleRequisitionAction)
 
-			// Register Tender routes
 			tenderHandler := handlers.NewTenderHandler(db)
 			authRouter.Post("/tenders", tenderHandler.CreateTender)
-			authRouter.Get("/tenders", tenderHandler.GetTenders)
-			authRouter.Get("/tenders/{id}", tenderHandler.GetTenderByID)
-			authRouter.Put("/tenders/{id}", tenderHandler.UpdateTender)
-			// authRouter.Delete("/tenders/{id}", tenderHandler.DeleteTender) // Commented out for now as DeleteTender is not yet implemented
+			// ... etc ...
 
-			// Register Bid routes (New)
-			bidHandler := handlers.NewBidHandler(db) // Create BidHandler instance
-			// POST /api/tenders/{tender_id}/bids - Supplier creates a bid for a tender
-			authRouter.Post("/tenders/{tenderId}/bids", bidHandler.CreateBid) // Placeholder for actual handler method
-
-			// GET /api/tenders/{tender_id}/bids - Procurement officer lists bids for a tender
-			authRouter.Get("/tenders/{tenderId}/bids", bidHandler.ListTenderBids) // Placeholder
-
-			// GET /api/my-bids - Supplier lists their own submitted bids
-			authRouter.Get("/my-bids", bidHandler.ListMyBids) // Placeholder
-
-			// Add other authenticated routes here
+			bidHandler := handlers.NewBidHandler(db)
+			authRouter.Post("/tenders/{tenderId}/bids", bidHandler.CreateBid)
+			// ... etc ...
 		})
-
-		// Public routes (if any)
-		// r.Get("/some-public-route", somePublicHandler)
 	})
 
-	// Simple health check route
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Welcome to the Procurement Backend!"))
-	})
+	// **STEP 2: Mount the frontend file server as a catch-all.**
+	// This will handle any request that did not match /api.
+	// The path "frontend/dist" matches the destination in your Dockerfile.
+	serveFrontend(r, "frontend/dist")
 
-	log.Println("Server starting on :8080")
+	// --- START SERVER (No changes needed here) ---
+	log.Println("Server starting on :8080, serving API and Frontend")
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatalf("Could not start server: %s\n", err)
 	}
