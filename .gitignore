@@ -1,3 +1,4 @@
 .aider*
 backend/procurement.db*
 backend/.env
+docker.run
