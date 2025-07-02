@@ -77,8 +77,8 @@
 								<a href={doc.entityLink || '#'} class="text-indigo-600 hover:text-indigo-900 hover:underline">{doc.associatedEntity}</a>
 							</td>
 							<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-								<a href="#" class="text-indigo-600 hover:text-indigo-900 mr-3">View</a>
-								<a href="#" class="text-red-600 hover:text-red-900">Delete</a> 
+								<button type="button" class="text-indigo-600 hover:text-indigo-900 mr-3">View</button>
+								<button type="button" class="text-red-600 hover:text-red-900">Delete</button> 
 							</td>
 						</tr>
 					{/each}

@@ -1,7 +1,7 @@
 import type { PageLoad } from './$types';
 import type { Tender } from '$lib/types';
 import type { LoadEvent } from '@sveltejs/kit';
-import { PUBLIC_API_BASE_URL } from '$env/static/public';
+import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 import { getAccessTokenSilently } from '$lib/authService';
 import { isAuthenticated } from '$lib/store';
 import { get } from 'svelte/store';
@@ -23,7 +23,7 @@ export const load: PageLoad = async ({ fetch, depends }: LoadEvent) => {
 			};
 		}
 
-		const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders`, {
+		const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders`, {
 			headers: {
 				'Authorization': `Bearer ${token}`
 			}

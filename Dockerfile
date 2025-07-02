@@ -21,7 +21,7 @@ ARG PUBLIC_VITE_AUTH0_DOMAIN
 ARG PUBLIC_VITE_AUTH0_CLIENT_ID
 ARG PUBLIC_VITE_AUTH0_CALLBACK_URL
 ARG PUBLIC_VITE_AUTH0_AUDIENCE
-ARG PUBLIC_API_BASE_URL  
+ARG PUBLIC_VITE_API_BASE_URL
 
 # Copy package management files to leverage Docker's layer cache.
 COPY frontend/package*.json ./
@@ -50,11 +50,7 @@ FROM golang:1.24-bullseye AS backend-builder
 WORKDIR /app
 
 # Install build-time dependencies for CGO (for go-sqlite3).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libc6-dev \
-    libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy and cache Go module dependencies.
 COPY backend/go.* ./
@@ -64,7 +60,7 @@ RUN go mod download
 COPY backend/ ./
 
 # Compile the Go application, creating a small, optimized binary.
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /main .
+RUN CGO_ENABLED=1 GOOS=linux go build -mod=mod -ldflags="-s -w" -o /main .
 
 
 # =========================================================================
@@ -75,13 +71,10 @@ FROM debian:bullseye-slim
 WORKDIR /app
 
 # Install only the required RUNTIME libraries.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    sqlite3 \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy the built frontend assets from the 'frontend-builder' stage.
-COPY --from=frontend-builder /app/frontend/.svelte-kit/output /app/frontend/dist
+COPY --from=frontend-builder /app/frontend/build /app/frontend/dist
 
 # Copy the compiled Go binary from the 'backend-builder' stage.
 COPY --from=backend-builder /main /app/main

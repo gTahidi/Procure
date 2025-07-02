@@ -1,1 +1,52 @@
-docker build   --build-arg VITE_AUTH0_DOMAIN="dev-ewdolj0bwbq50dxr.us.auth0.com"   --build-arg VITE_AUTH0_CLIENT_ID="3k32lJ8QbOswQSI6QtTFzDNyJ3midrKm"   --build-arg VITE_AUTH0_CALLBACK_URL="http://localhost:5173/callback"   --build-arg VITE_AUTH0_AUDIENCE="procurement"   --build-arg VITE_API_BASE_URL="/api"   -t procure-app .
+#!/bin/bash
+
+# =========================================================================
+# Docker Build & Run Script
+# =========================================================================
+# This script first builds the Docker image and then runs the container,
+# passing both build-time arguments (for the frontend) and a runtime
+# environment file (for the backend).
+# =========================================================================
+
+# --- Configuration ---
+# Set your Auth0 and application variables here.
+# These are used for both the --build-arg (frontend) and the --env-file (backend).
+
+# For SvelteKit (prefixed with PUBLIC_VITE_ for clarity)
+export PUBLIC_VITE_AUTH0_DOMAIN="dev-ewdolj0bwbq50dxr.us.auth0.com"
+export PUBLIC_VITE_AUTH0_CLIENT_ID="3k32lJ8QbOswQSI6QtTFzDNyJ3midrKm"
+export PUBLIC_VITE_AUTH0_CALLBACK_URL="http://localhost:8080/callback" # Use the container port
+export PUBLIC_VITE_AUTH0_AUDIENCE="procurement"
+export PUBLIC_VITE_API_BASE_URL="/api"
+
+# For Go Backend (used in the .env file)
+# Ensure you have a backend/.env file with AUTH0_DOMAIN and AUTH0_AUDIENCE
+
+# --- Docker Commands ---
+
+# 1. Build the image
+# Passes the SvelteKit variables as build-time arguments.
+echo "Building Docker image..."
+docker build \
+  --build-arg PUBLIC_VITE_AUTH0_DOMAIN="$PUBLIC_VITE_AUTH0_DOMAIN" \
+  --build-arg PUBLIC_VITE_AUTH0_CLIENT_ID="$PUBLIC_VITE_AUTH0_CLIENT_ID" \
+  --build-arg PUBLIC_VITE_AUTH0_CALLBACK_URL="$PUBLIC_VITE_AUTH0_CALLBACK_URL" \
+  --build-arg PUBLIC_VITE_AUTH0_AUDIENCE="$PUBLIC_VITE_AUTH0_AUDIENCE" \
+  --build-arg PUBLIC_VITE_API_BASE_URL="$PUBLIC_VITE_API_BASE_URL" \
+  -t procure-app .
+
+# Check if the build was successful
+if [ $? -ne 0 ]; then
+  echo "Docker build failed. Aborting."
+  exit 1
+fi
+
+# 2. Run the container
+# Mounts the backend/.env file to provide runtime configuration to the Go app.
+echo "Running Docker container..."
+docker run \
+  --rm -it \
+  -p 8080:8080 \
+  --env-file ./backend/.env \
+  --name procure-app-container \
+  procure-app

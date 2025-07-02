@@ -3,7 +3,7 @@
 	import { goto, invalidate } from '$app/navigation';
 	import type { PageData } from './$types';
 	import type { Tender, Bid, BidItem, RequisitionItem } from '$lib/types'; // Added Bid, BidItem, RequisitionItem
-	import { PUBLIC_API_BASE_URL } from '$env/static/public';
+	import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 	import { getAccessTokenSilently } from '$lib/authService';
 	import { user } from '$lib/store';
 
@@ -155,7 +155,7 @@
 				return;
 			}
 
-			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}`, {
+			const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders/${tender.id}`, {
 				method: 'PUT',
 				headers: {
 					'Content-Type': 'application/json',
@@ -250,7 +250,7 @@
 				}
 			});
 
-			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}/bids`, {
+			const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders/${tender.id}/bids`, {
 				method: 'POST',
 				headers: {
 					// 'Content-Type': 'multipart/form-data' is set automatically by browser when using FormData
@@ -273,9 +273,9 @@
 			bidItemFiles = [];
 			
 			// Invalidate bids data if displayed on this page (for procurement officers)
-			invalidate((url) => url.href.startsWith(`${PUBLIC_API_BASE_URL}/api/tenders/${tender?.id}/bids`));
+			invalidate((url) => url.href.startsWith(`${PUBLIC_VITE_API_BASE_URL}/api/tenders/${tender?.id}/bids`));
       // Also invalidate the tender itself in case its status or bid count changes
-      invalidate((url) => url.href === `${PUBLIC_API_BASE_URL}/api/tenders/${tender?.id}`);
+      invalidate((url) => url.href === `${PUBLIC_VITE_API_BASE_URL}/api/tenders/${tender?.id}`);
 		} catch (err: any) {
 			console.error('Bid submission error:', err);
 			bidSubmissionError = err.message || 'An unexpected error occurred while submitting your bid.';
@@ -556,10 +556,10 @@
 														<p class="text-xs text-gray-600 whitespace-pre-wrap"><strong>Details:</strong> {originalReqItem.specification_text}</p>
 													{/if}
 													{#if originalReqItem.specification_sheet_url}
-														<p class="text-xs text-gray-600 mt-1"><strong>Sheet:</strong> <a href={PUBLIC_API_BASE_URL + originalReqItem.specification_sheet_url} target="_blank" rel="noopener noreferrer" class="link link-hover link-primary">View Original Spec Sheet</a></p>
+														<p class="text-xs text-gray-600 mt-1"><strong>Sheet:</strong> <a href={PUBLIC_VITE_API_BASE_URL + originalReqItem.specification_sheet_url} target="_blank" rel="noopener noreferrer" class="link link-hover link-primary">View Original Spec Sheet</a></p>
 													{/if}
 													{#if originalReqItem.item_image_url}
-														<p class="text-xs text-gray-600 mt-1"><strong>Image:</strong> <a href={PUBLIC_API_BASE_URL + originalReqItem.item_image_url} target="_blank" rel="noopener noreferrer" class="link link-hover link-primary">View Original Image</a></p>
+														<p class="text-xs text-gray-600 mt-1"><strong>Image:</strong> <a href={PUBLIC_VITE_API_BASE_URL + originalReqItem.item_image_url} target="_blank" rel="noopener noreferrer" class="link link-hover link-primary">View Original Image</a></p>
 													{/if}
 												</div>
 												{/if}

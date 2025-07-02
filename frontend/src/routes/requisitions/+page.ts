@@ -1,5 +1,5 @@
 import type { PageLoad, PageLoadEvent } from './$types';
-import { PUBLIC_API_BASE_URL } from '$env/static/public';
+import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 import { getAccessTokenSilently } from '$lib/authService';
 import { isAuthenticated } from '$lib/store';
 import { get } from 'svelte/store';
@@ -62,7 +62,7 @@ export const load: PageLoad = async (event: PageLoadEvent) => {
       }
     };
 
-    const response = await event.fetch(`${PUBLIC_API_BASE_URL}/api/requisitions`, fetchOptions);
+    const response = await event.fetch(`${PUBLIC_VITE_API_BASE_URL}/api/requisitions`, fetchOptions);
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         console.error(`[+page.ts /requisitions] Auth error from backend: ${response.status}`);

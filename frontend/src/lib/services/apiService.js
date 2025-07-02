@@ -1,7 +1,7 @@
 // src/lib/services/apiService.js
 
 // Use the environment variable with a fallback for development
-const BASE_URL = import.meta.env.PUBLIC_API_BASE_URL || 'http://localhost:8080/api';
+const BASE_URL = import.meta.env.PUBLIC_VITE_API_BASE_URL || 'http://localhost:8080/api';
 
 // Add auth token to requests if available
 function getAuthHeader() {

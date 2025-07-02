@@ -20,32 +20,22 @@ import (
 // It uses a catch-all route that first checks for a static file,
 // and if not found, serves the index.html file for SPA routing.
 func serveFrontend(r *chi.Mux, staticPath string) {
-	// The path to the static files built by SvelteKit
-	root := http.Dir(staticPath)
-	indexPath := "index.html"
+	fs := http.FileServer(http.Dir(staticPath))
 
-	// Create a file server handler
-	fs := http.FileServer(root)
-
-	// This is the catch-all handler for the frontend
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		// Get the requested file path
-		requestedPath := r.URL.Path
+		// Check if a file exists at the requested path
+		filePath := filepath.Join(staticPath, r.URL.Path)
+		stat, err := os.Stat(filePath)
 
-		// Check if the file exists in our static directory
-		filePath := filepath.Join(staticPath, requestedPath)
-		_, err := os.Stat(filePath)
-
-		// If the file doesn't exist, it's likely a client-side route.
-		// In that case, serve the main index.html file.
-		if os.IsNotExist(err) {
-			http.ServeFile(w, r, filepath.Join(staticPath, indexPath))
+		// If the file exists and it is NOT a directory, serve it.
+		if err == nil && !stat.IsDir() {
+			fs.ServeHTTP(w, r)
 			return
 		}
 
-		// If the file exists, let the file server handle it.
-		// This will serve CSS, JS, images, etc.
-		fs.ServeHTTP(w, r)
+		// For any other case (file not found, it's a directory, etc.),
+		// serve the main index.html file to let the SPA router handle it.
+		http.ServeFile(w, r, filepath.Join(staticPath, "index.html"))
 	})
 }
 

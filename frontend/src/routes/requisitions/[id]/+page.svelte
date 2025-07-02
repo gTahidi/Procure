@@ -3,7 +3,7 @@
 	import type { PageData } from './$types';
 	import { user } from '$lib/store';
 	import { getAccessTokenSilently } from '$lib/authService';
-	import { PUBLIC_API_BASE_URL } from '$env/static/public';
+	import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 
@@ -43,7 +43,7 @@
 		}
 
 		try {
-			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/requisitions/${data.requisition.id}/action`, {
+			const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/requisitions/${data.requisition.id}/action`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -84,6 +84,12 @@
 		handleRequisitionAction('reject', rejectionReason.trim());
 	}
 
+	function handleKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && showRejectionModal) {
+			showRejectionModal = false;
+		}
+	}
+
 	// Reactive statements to determine button visibility
 	$: isAdmin = $user?.role === 'admin';
 	$: canPerformFirstApproval = isAdmin && (data.requisition?.status === 'pending_approval_1' || data.requisition?.status === 'submitted_for_approval');
@@ -100,6 +106,8 @@
 <svelte:head>
 	<title>Requisition {data.requisition?.id || 'Details'} - Procurement System</title>
 </svelte:head>
+
+<svelte:window on:keydown={handleKeyDown}/>
 
 {#if data.requisition}
 <div class="container mx-auto py-8 px-4">
@@ -236,8 +244,8 @@
 
 		<!-- Rejection Reason Modal -->
 		{#if showRejectionModal}
-		<div class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50 flex justify-center items-center p-4" on:click|self={() => showRejectionModal = false}>
-		  <div class="relative p-6 border w-full max-w-lg shadow-xl rounded-lg bg-white" on:click|stopPropagation>
+		<div class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50 flex justify-center items-center p-4" role="dialog" aria-modal="true">
+		  <div class="relative p-6 border w-full max-w-lg shadow-xl rounded-lg bg-white" role="document">
 			<h3 class="text-xl font-semibold leading-6 text-gray-900 mb-4">Provide Rejection Reason</h3>
 			<div class="mt-2">
 			  <textarea bind:value={rejectionReason}

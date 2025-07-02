@@ -3,7 +3,7 @@ import type { PageLoad } from './$types';
 import { isAuthenticated } from '$lib/store';
 import { get } from 'svelte/store';
 import { getAccessTokenSilently } from '$lib/authService';
-import { PUBLIC_API_BASE_URL } from '$env/static/public';
+import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 
 export const load: PageLoad = async ({ params, fetch }) => {
 	if (!get(isAuthenticated)) {
@@ -21,7 +21,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
 	}
 
 	try {
-		const response = await fetch(`${PUBLIC_API_BASE_URL}/api/requisitions/${requisitionId}`, {
+		const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/requisitions/${requisitionId}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json',

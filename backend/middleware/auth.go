@@ -2,74 +2,102 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"procurement/database"
-	"procurement/handlers" // For RespondWithError
+	"procurement/handlers"
 	"procurement/models"
 
-	"github.com/golang-jwt/jwt/v5"
+	"gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
 )
 
-// TokenMiddleware is a simplified authentication middleware for POC/development purposes.
-// It parses the JWT token to extract the 'sub' claim (Auth0ID) WITHOUT full signature verification.
-// It then looks up the user in the database and adds their internal ID to the request context.
-// WARNING: Not for production use due to lack of signature validation.
+// Validator is a struct that holds the necessary information for JWT validation.
+type Validator struct {
+	Audience string
+	Issuer   string
+	jwks     *jose.JSONWebKeySet
+}
+
+// NewValidator creates a new Validator and fetches the JWKS from the Auth0 domain.
+func NewValidator() (*Validator, error) {
+	issuer := os.Getenv("AUTH0_DOMAIN")
+	audience := os.Getenv("AUTH0_AUDIENCE")
+
+	jwksURL := "https://" + issuer + "/.well-known/jwks.json"
+	resp, err := http.Get(jwksURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var jwks jose.JSONWebKeySet
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return nil, err
+	}
+
+	return &Validator{
+		Audience: audience,
+		Issuer:   issuer,
+		jwks:     &jwks,
+	}, nil
+}
+
+// TokenMiddleware verifies the JWT token and adds the user's internal ID to the request context.
 func TokenMiddleware(next http.Handler) http.Handler {
+	validator, err := NewValidator()
+	if err != nil {
+		log.Fatalf("Failed to create validator: %v", err)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			log.Println("ERROR: TokenMiddleware: Authorization header missing")
 			handlers.RespondWithError(w, http.StatusUnauthorized, "Authorization header required")
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			log.Println("ERROR: TokenMiddleware: Authorization header format must be Bearer {token}")
 			handlers.RespondWithError(w, http.StatusUnauthorized, "Authorization header format must be Bearer {token}")
 			return
 		}
 		tokenString := parts[1]
 
-		// Parse the token without verifying the signature (POC/development only!)
-		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+		token, err := jwt.ParseSigned(tokenString)
 		if err != nil {
-			log.Printf("ERROR: TokenMiddleware: Error parsing token: %v\n", err)
 			handlers.RespondWithError(w, http.StatusUnauthorized, "Invalid token")
 			return
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			log.Println("ERROR: TokenMiddleware: Could not assert claims to jwt.MapClaims")
+		claims := jwt.Claims{}
+		if err := token.Claims(validator.jwks, &claims); err != nil {
 			handlers.RespondWithError(w, http.StatusUnauthorized, "Invalid token claims")
 			return
 		}
 
-		sub, ok := claims["sub"].(string)
-		if !ok || sub == "" {
-			log.Println("ERROR: TokenMiddleware: 'sub' claim missing or invalid in token")
-			handlers.RespondWithError(w, http.StatusUnauthorized, "Token missing user identifier")
+		if err := claims.Validate(jwt.Expected{
+			Audience: jwt.Audience{validator.Audience},
+			Issuer:   validator.Issuer,
+			Time:     time.Now(),
+		}); err != nil {
+			handlers.RespondWithError(w, http.StatusUnauthorized, "Token validation failed")
 			return
 		}
 
 		db := database.GetDB()
 		var user models.User
-		if err := db.Where("auth0_id = ?", sub).First(&user).Error; err != nil {
-			log.Printf("ERROR: TokenMiddleware: User not found for auth0_id %s: %v\n", sub, err)
-			handlers.RespondWithError(w, http.StatusUnauthorized, "User not found or database error")
+		if err := db.Where("auth0_id = ?", claims.Subject).First(&user).Error; err != nil {
+			handlers.RespondWithError(w, http.StatusUnauthorized, "User not found")
 			return
 		}
 
-		// Add user ID to context. user.ID is int64.
-		// ListRequisitionsHandler expects userID in context. It currently asserts to uint.
-		// We will need to adjust ListRequisitionsHandler to expect int64 or convert here if strictly necessary.
-		// For now, we pass user.ID as is (int64).
 		ctx := context.WithValue(r.Context(), "userID", user.ID)
-		log.Printf("INFO: TokenMiddleware: Authenticated user %s (DB ID: %d), proceeding to handler.\n", sub, user.ID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

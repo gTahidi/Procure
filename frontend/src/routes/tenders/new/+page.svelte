@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { getAccessTokenSilently } from '$lib/authService';
-	import { PUBLIC_API_BASE_URL } from '$env/static/public';
+	import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 
 	// Simplified interfaces for what we expect from the requisition endpoint
 	interface RequisitionItem {
@@ -60,7 +60,7 @@
 					if (!token) {
 						throw new Error('Authentication token not available. Please log in.');
 					}
-					const response = await fetch(`${PUBLIC_API_BASE_URL}/api/requisitions/${requisitionIdParam}`, {
+					const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/requisitions/${requisitionIdParam}`, {
 						headers: {
 							'Authorization': `Bearer ${token}`,
 							'Accept': 'application/json'
@@ -129,7 +129,7 @@
 				closing_date: formData.closing_date ? new Date(formData.closing_date).toISOString() : null
 			};
 
-			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders`, {
+			const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',

@@ -1,7 +1,7 @@
 import type { PageLoad } from './$types';
 import type { Tender } from '$lib/types';
 import type { LoadEvent } from '@sveltejs/kit';
-import { PUBLIC_API_BASE_URL } from '$env/static/public';
+import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 import { getAccessTokenSilently } from '$lib/authService';
 import { isAuthenticated, user as userStore } from '$lib/store';
 import { get } from 'svelte/store';
@@ -26,7 +26,7 @@ export const load: PageLoad = async ({ params, fetch, depends }: LoadEvent) => {
 			};
 		}
 
-		const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${id}`, {
+		const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders/${id}`, {
 			headers: {
 				'Authorization': `Bearer ${token}`
 			}
@@ -54,7 +54,7 @@ export const load: PageLoad = async ({ params, fetch, depends }: LoadEvent) => {
 		// If the user is a procurement officer, fetch bids for this tender
 		if (currentUser && currentUser.role === 'procurement_officer') {
 			try {
-				const bidsResponse = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${id}/bids`, {
+				const bidsResponse = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders/${id}/bids`, {
 					headers: {
 						'Authorization': `Bearer ${token}`
 					}
