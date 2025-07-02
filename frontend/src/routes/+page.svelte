@@ -1,6 +1,6 @@
 <script lang="ts">
   import { user } from '$lib/store';
-  import { getAccessTokenSilently, loginWithRedirect } from '$lib/authService';
+  import { getAccessTokenSilently, login } from '$lib/authService';
   import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 
   // Interfaces for our data structures
@@ -467,7 +467,7 @@
     </p>
     <p class="text-gray-500 mb-8">Please log in to access your dashboard and manage your procurement activities.</p>
     <button
-      on:click={loginWithRedirect}
+      on:click={login}
       class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105"
     >
       Log In

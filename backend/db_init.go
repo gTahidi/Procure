@@ -3,14 +3,22 @@ package main
 import (
 	"database/sql"
 	"log"
+	"os"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
 
-const DATABASE_NAME = "./procurement.db"
+func getDatabasePath() string {
+	dbPath := os.Getenv("DATABASE_PATH")
+	if dbPath == "" {
+		return "./procurement.db" // Default to local file if not set
+	}
+	return dbPath
+}
 
 func SetupDatabaseSchema() {
-	db, err := sql.Open("sqlite3", DATABASE_NAME+"?_foreign_keys=on") // Enable FK enforcement
+	dbPath := getDatabasePath()
+	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on") // Enable FK enforcement
 	if err != nil {
 		log.Fatalf("Error opening database: %v", err)
 	}
@@ -20,7 +28,7 @@ func SetupDatabaseSchema() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 
-	log.Println("Successfully connected to SQLite database:", DATABASE_NAME)
+	log.Println("Successfully connected to SQLite database:", dbPath)
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS Users (

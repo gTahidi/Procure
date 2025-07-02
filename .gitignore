@@ -2,3 +2,4 @@
 backend/procurement.db*
 backend/.env
 docker.run
+/data/

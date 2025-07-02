@@ -42,11 +42,17 @@ if [ $? -ne 0 ]; then
 fi
 
 # 2. Run the container
+# Creates a local ./data directory for the database if it doesn't exist.
+# Mounts the local data directory into the container for persistent storage.
 # Mounts the backend/.env file to provide runtime configuration to the Go app.
+echo "Creating local data directory if it doesn't exist..."
+mkdir -p ./data
+
 echo "Running Docker container..."
 docker run \
   --rm -it \
   -p 8080:8080 \
   --env-file ./backend/.env \
+  -v "$(pwd)/data:/app/data" \
   --name procure-app-container \
   procure-app
