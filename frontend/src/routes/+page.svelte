@@ -1,7 +1,7 @@
 <script lang="ts">
   import { user } from '$lib/store';
   import { getAccessTokenSilently, loginWithRedirect } from '$lib/authService';
-  import { PUBLIC_API_BASE_URL } from '$env/static/public';
+  import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 
   // Interfaces for our data structures
   interface DashboardStats {
