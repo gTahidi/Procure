@@ -278,6 +278,49 @@ type RequisitionActionPayload struct {
 }
 
 // HandleRequisitionAction handles POST requests to approve or reject a requisition
+// MyRequisitionStats defines the statistics for a requester's personal dashboard.
+type MyRequisitionStats struct {
+	Pending  int64 `json:"pending"`
+	Approved int64 `json:"approved"`
+	Rejected int64 `json:"rejected"`
+	Draft    int64 `json:"draft"` // Assuming 'draft' is not a formal status, but we can add logic if needed.
+}
+
+// GetMyRequisitionStatsHandler calculates and returns statistics for the current user's requisitions.
+func GetMyRequisitionStatsHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+	userID, ok := r.Context().Value("userID").(int64)
+	if !ok {
+		RespondWithError(w, http.StatusUnauthorized, "Could not identify user.")
+		return
+	}
+
+	var stats MyRequisitionStats
+	db.Model(&models.Requisition{}).Where("user_id = ? AND status IN (?)", userID, []string{string(models.RequisitionStatusPendingApproval1), string(models.RequisitionStatusPendingApproval2)}).Count(&stats.Pending)
+	db.Model(&models.Requisition{}).Where("user_id = ? AND status IN (?)", userID, []string{string(models.RequisitionStatusApproved), string(models.RequisitionStatusPendingTender), string(models.RequisitionStatusTendered)}).Count(&stats.Approved)
+	db.Model(&models.Requisition{}).Where("user_id = ? AND status = ?", userID, models.RequisitionStatusRejected).Count(&stats.Rejected)
+
+	RespondWithJSON(w, http.StatusOK, stats)
+}
+
+// GetMyRecentRequisitionsHandler fetches the 5 most recent requisitions for the current user.
+func GetMyRecentRequisitionsHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+	userID, ok := r.Context().Value("userID").(int64)
+	if !ok {
+		RespondWithError(w, http.StatusUnauthorized, "Could not identify user.")
+		return
+	}
+
+	var requisitions []models.Requisition
+	if err := db.Where("user_id = ?", userID).Order("created_at desc").Limit(5).Find(&requisitions).Error; err != nil {
+		RespondWithError(w, http.StatusInternalServerError, "Failed to fetch recent requisitions")
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, requisitions)
+}
+
 func HandleRequisitionAction(w http.ResponseWriter, r *http.Request) {
 	log.Println("DEBUG: HandleRequisitionAction: Entered function.")
 	db := database.GetDB()

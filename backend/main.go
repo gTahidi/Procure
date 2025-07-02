@@ -90,6 +90,19 @@ func main() {
 			// GET /api/my-bids - Supplier lists their own submitted bids
 			authRouter.Get("/my-bids", bidHandler.ListMyBids) // Placeholder
 
+			// Register dashboard routes
+			authRouter.Get("/dashboard/requisition-stats", handlers.GetRequisitionStatsHandler)
+			authRouter.Get("/dashboard/recent-requisitions", handlers.GetRecentRequisitionsHandler)
+			authRouter.Get("/dashboard/live-tenders", handlers.GetLiveTendersHandler)
+			authRouter.Get("/dashboard/creation-rate", handlers.GetCreationRateHandler)
+
+			// Routes for requester-specific dashboard data
+			authRouter.Get("/dashboard/my-stats", handlers.GetMyRequisitionStatsHandler)
+			authRouter.Get("/dashboard/my-recent-requisitions", handlers.GetMyRecentRequisitionsHandler)
+
+			// Route for supplier-specific dashboard data
+			authRouter.Get("/dashboard/supplier", handlers.GetSupplierDashboardDataHandler)
+
 			// Add other authenticated routes here
 		})
 
