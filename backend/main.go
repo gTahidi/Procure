@@ -16,31 +16,25 @@ import (
 	"procurement/models"
 )
 
-// serveFrontend serves the static SvelteKit application.
-// It uses a catch-all route that first checks for a static file,
-// and if not found, serves the index.html file for SPA routing.
 func serveFrontend(r *chi.Mux, staticPath string) {
 	fs := http.FileServer(http.Dir(staticPath))
 
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		// Check if a file exists at the requested path
+
 		filePath := filepath.Join(staticPath, r.URL.Path)
 		stat, err := os.Stat(filePath)
 
-		// If the file exists and it is NOT a directory, serve it.
 		if err == nil && !stat.IsDir() {
 			fs.ServeHTTP(w, r)
 			return
 		}
 
-		// For any other case (file not found, it's a directory, etc.),
-		// serve the main index.html file to let the SPA router handle it.
 		http.ServeFile(w, r, filepath.Join(staticPath, "index.html"))
 	})
 }
 
 func main() {
-	// --- DATABASE INITIALIZATION (No changes needed here) ---
+
 	if err := database.InitDB(); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -58,12 +52,7 @@ func main() {
 	}
 	log.Println("Database migration successful.")
 
-	// --- ROUTER & MIDDLEWARE SETUP (No changes needed here) ---
 	r := chi.NewRouter()
-
-	// Note on CORS: When serving from the same origin, CORS is not strictly necessary.
-	// However, it's useful for local development (e.g., Vite dev server at :5173 hitting API at :8080).
-	// For production, you could restrict this or remove it.
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -78,10 +67,6 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// --- ROUTING LOGIC ---
-
-	// **STEP 1: Mount all API routes first.**
-	// All requests to /api/... will be handled by this group.
 	r.Route("/api", func(apiRouter chi.Router) {
 		handlers.RegisterUserRoutes(apiRouter)
 		apiRouter.Group(func(authRouter chi.Router) {
