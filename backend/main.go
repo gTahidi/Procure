@@ -54,7 +54,7 @@ func main() {
 
 	r := chi.NewRouter()
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "https://procure.ujaotech.com"},
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://procure.ujaotech.com", "https://procure.ujaotech.com"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
