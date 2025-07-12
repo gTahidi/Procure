@@ -54,7 +54,7 @@ func main() {
 
 	r := chi.NewRouter()
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"},
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "https://procure.ujaotech.com"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
@@ -71,7 +71,6 @@ func main() {
 		handlers.RegisterUserRoutes(apiRouter)
 		apiRouter.Group(func(authRouter chi.Router) {
 			authRouter.Use(appMiddleware.TokenMiddleware)
-			// ... all your existing authenticated routes go here ...
 			authRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
 			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
 			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler)
@@ -79,38 +78,21 @@ func main() {
 
 			tenderHandler := handlers.NewTenderHandler(db)
 			authRouter.Post("/tenders", tenderHandler.CreateTender)
-			// ... etc ...
-
 			bidHandler := handlers.NewBidHandler(db)
 			authRouter.Post("/tenders/{tenderId}/bids", bidHandler.CreateBid)
-			// GET /api/tenders/{tender_id}/bids - Procurement officer lists bids for a tender
-			authRouter.Get("/tenders/{tenderId}/bids", bidHandler.ListTenderBids) // Placeholder
-
-			// GET /api/my-bids - Supplier lists their own submitted bids
-			authRouter.Get("/my-bids", bidHandler.ListMyBids) // Placeholder
-
-			// Register dashboard routes
+			authRouter.Get("/tenders/{tenderId}/bids", bidHandler.ListTenderBids)
+			authRouter.Get("/my-bids", bidHandler.ListMyBids)
 			authRouter.Get("/dashboard/requisition-stats", handlers.GetRequisitionStatsHandler)
 			authRouter.Get("/dashboard/recent-requisitions", handlers.GetRecentRequisitionsHandler)
 			authRouter.Get("/dashboard/live-tenders", handlers.GetLiveTendersHandler)
 			authRouter.Get("/dashboard/creation-rate", handlers.GetCreationRateHandler)
-
-			// Routes for requester-specific dashboard data
 			authRouter.Get("/dashboard/my-stats", handlers.GetMyRequisitionStatsHandler)
 			authRouter.Get("/dashboard/my-recent-requisitions", handlers.GetMyRecentRequisitionsHandler)
-
-			// Route for supplier-specific dashboard data
 			authRouter.Get("/dashboard/supplier", handlers.GetSupplierDashboardDataHandler)
-
 		})
 	})
 
-	// **STEP 2: Mount the frontend file server as a catch-all.**
-	// This will handle any request that did not match /api.
-	// The path "frontend/dist" matches the destination in your Dockerfile.
 	serveFrontend(r, "frontend/dist")
-
-	// --- START SERVER (No changes needed here) ---
 	log.Println("Server starting on :8080, serving API and Frontend")
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatalf("Could not start server: %s\n", err)
