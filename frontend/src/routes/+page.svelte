@@ -77,9 +77,9 @@
 
       // Fetch all data in parallel for efficiency
       const [statsResponse, requisitionsResponse, tendersResponse] = await Promise.all([
-        fetch(`${PUBLIC_API_BASE_URL}/api/dashboard/requisition-stats`, { headers }),
-        fetch(`${PUBLIC_API_BASE_URL}/api/dashboard/recent-requisitions`, { headers }),
-        fetch(`${PUBLIC_API_BASE_URL}/api/dashboard/live-tenders`, { headers }),
+        fetch(`${PUBLIC_VITE_API_BASE_URL}/api/dashboard/requisition-stats`, { headers }),
+        fetch(`${PUBLIC_VITE_API_BASE_URL}/api/dashboard/recent-requisitions`, { headers }),
+        fetch(`${PUBLIC_VITE_API_BASE_URL}/api/dashboard/live-tenders`, { headers }),
       ]);
 
       // Check all responses before proceeding
@@ -113,8 +113,8 @@
       const headers = { Authorization: `Bearer ${token}` };
 
       const [statsRes, recentRes] = await Promise.all([
-        fetch(`${PUBLIC_API_BASE_URL}/api/dashboard/my-stats`, { headers }),
-        fetch(`${PUBLIC_API_BASE_URL}/api/dashboard/my-recent-requisitions`, { headers }),
+        fetch(`${PUBLIC_VITE_API_BASE_URL}/api/dashboard/my-stats`, { headers }),
+        fetch(`${PUBLIC_VITE_API_BASE_URL}/api/dashboard/my-recent-requisitions`, { headers }),
       ]);
 
       if (!statsRes.ok) throw new Error(`Failed to fetch your stats: ${statsRes.statusText}`);
@@ -162,7 +162,7 @@
       if (!token) throw new Error('Could not retrieve access token.');
       const headers = { Authorization: `Bearer ${token}` };
 
-      const res = await fetch(`${PUBLIC_API_BASE_URL}/api/dashboard/supplier`, { headers });
+      const res = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/dashboard/supplier`, { headers });
       if (!res.ok) throw new Error(`Failed to fetch supplier dashboard: ${res.statusText}`);
 
       supplierData = await res.json();

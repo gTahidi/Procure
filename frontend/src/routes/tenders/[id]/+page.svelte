@@ -300,7 +300,7 @@
 				return;
 			}
 
-			const response = await fetch(`${PUBLIC_API_BASE_URL}/api/tenders/${tender.id}`, {
+			const response = await fetch(`${PUBLIC_VITE_API_BASE_URL}/api/tenders/${tender.id}`, {
 				method: 'DELETE',
 				headers: {
 					'Authorization': `Bearer ${token}`

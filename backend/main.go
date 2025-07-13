@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rs/cors"
-
+	"github.com/go-chi/cors"
+	"github.com/joho/godotenv"
 	"procurement/database"
 	"procurement/handlers"
 	appMiddleware "procurement/middleware"
@@ -34,6 +34,9 @@ func serveFrontend(r *chi.Mux, staticPath string) {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, reading from environment")
+	}
 
 	if err := database.InitDB(); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -67,10 +70,18 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	auth0Domain := os.Getenv("AUTH0_DOMAIN")
+	auth0Audience := os.Getenv("AUTH0_AUDIENCE")
+
+	authValidator, err := appMiddleware.NewValidator(auth0Domain, auth0Audience)
+	if err != nil {
+		log.Fatalf("Failed to create authentication validator: %v", err)
+	}
+
 	r.Route("/api", func(apiRouter chi.Router) {
 		handlers.RegisterUserRoutes(apiRouter)
 		apiRouter.Group(func(authRouter chi.Router) {
-			authRouter.Use(appMiddleware.TokenMiddleware)
+			authRouter.Use(appMiddleware.TokenMiddleware(authValidator))
 			authRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
 			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
 			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler)
