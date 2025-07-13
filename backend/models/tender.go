@@ -26,6 +26,9 @@ type Tender struct {
 
 	// Has-many relationship: A Tender can have multiple Bids
 	Bids []Bid `json:"bids,omitempty" gorm:"foreignKey:TenderID"`
+
+	// Fields to be populated programmatically, not stored in DB
+	BiddersInvitedCount int `json:"bidders_invited_count" gorm:"-"`
 }
 
 // TenderItem might be needed if tenders have their own line items distinct from requisition items

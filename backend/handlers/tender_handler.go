@@ -146,6 +146,12 @@ func (h *TenderHandler) GetTenderByID(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	// Count the number of bids for this tender
+	var bidCount int64
+	h.DB.Model(&models.Bid{}).Where("tender_id = ?", tender.ID).Count(&bidCount)
+	tender.BiddersInvitedCount = int(bidCount)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(tender)

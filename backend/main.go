@@ -89,6 +89,7 @@ func main() {
 
 			tenderHandler := handlers.NewTenderHandler(db)
 			authRouter.Post("/tenders", tenderHandler.CreateTender)
+			authRouter.Get("/tenders/{id}", tenderHandler.GetTenderByID)
 			bidHandler := handlers.NewBidHandler(db)
 			authRouter.Post("/tenders/{tenderId}/bids", bidHandler.CreateBid)
 			authRouter.Get("/tenders/{tenderId}/bids", bidHandler.ListTenderBids)

@@ -107,6 +107,7 @@ export interface Tender {
   created_at?: string | null; // from *time.Time
   updated_at?: string | null; // from *time.Time
   requisition?: Requisition; // For preloaded requisition details
+  bidders_invited_count?: number; // Number of suppliers who have placed a bid
   // Add other relevant fields from your Go model
 }
 

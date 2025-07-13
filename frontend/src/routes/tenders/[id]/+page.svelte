@@ -624,47 +624,19 @@
 					</form>
 				{/if}
 
-				<!-- Display Bids for Procurement Officers/Admins -->
+				<!-- Bid Evaluation Section -->
 				{#if canViewBids && !editMode}
 					<div class="mt-10 pt-6 border-t">
-						<h3 class="text-xl font-semibold text-gray-800 mb-4">Submitted Bids</h3>
+						<h3 class="text-xl font-semibold text-gray-800 mb-4">Bid Evaluation</h3>
 						{#if bidsError}
 							<div class="alert alert-error">
-								<p>Error loading bids: {bidsError}</p>
+								<p>Error loading bid data: {bidsError}</p>
 							</div>
 						{:else if bids && bids.length > 0}
-							<div class="overflow-x-auto">
-								<table class="table w-full table-zebra table-compact">
-									<thead>
-										<tr>
-											<th>Bid ID</th>
-											<th>Supplier ID</th>
-											<th>Amount</th>
-											<th>Proposal URL</th>
-											<th>Submitted At</th>
-											<th>Status</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each bids as bid (bid.id)}
-											<tr>
-												<td>{bid.id}</td>
-												<td>{bid.supplier_id}</td>
-												<td>{bid.bid_amount?.toFixed(2) || 'N/A'}</td>
-												<td>
-													{#if bid.proposal_document_url}
-														<a href={bid.proposal_document_url} target="_blank" rel="noopener noreferrer" class="link link-primary">View Proposal</a>
-													{:else}
-														N/A
-													{/if}
-												</td>
-												<td>{formatDate(bid.created_at)}</td>
-												<td><span class="badge badge-sm {bid.status === 'submitted' ? 'badge-info' : bid.status === 'awarded' ? 'badge-success' : bid.status === 'rejected' ? 'badge-error' : 'badge-ghost'}">{bid.status || 'N/A'}</span></td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
+							<p class="mb-4">{bids.length} bid(s) have been submitted for this tender.</p>
+							<a href="/tenders/{tender.id}/evaluation" class="btn btn-primary">
+								View Bid Comparison
+							</a>
 						{:else}
 							<p class="text-gray-600 italic">No bids have been submitted for this tender yet.</p>
 						{/if}
