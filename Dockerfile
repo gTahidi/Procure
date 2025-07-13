@@ -81,6 +81,7 @@ COPY --from=backend-builder /main /app/main
 
 # --- Security: Run as a non-root user ---
 RUN useradd --system --create-home --shell /bin/false appuser
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 RUN chown -R appuser:appuser /app
 USER appuser
 
