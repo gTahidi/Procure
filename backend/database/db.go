@@ -3,6 +3,7 @@ package database
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"gorm.io/driver/sqlite"
@@ -29,26 +30,37 @@ func InitDB() error {
 	var err error
 	once.Do(func() {
 		dbPath := getDatabasePath()
-		log.Println("Attempting to connect to SQLite database using GORM...")
-		db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
-		})
-		if err != nil {
-			log.Printf("FATAL: Failed to connect to database %s: %v\n", dbPath, err)
+
+		// Ensure the directory for the database file exists.
+		dir := filepath.Dir(dbPath)
+		if mkdirErr := os.MkdirAll(dir, 0755); mkdirErr != nil {
+			log.Printf("FATAL: Failed to create database directory %s: %v\n", dir, mkdirErr)
+			err = mkdirErr
 			return
 		}
 
-		sqlDB, DBPoolErr := db.DB()
-		if DBPoolErr != nil {
-			log.Printf("FATAL: Failed to get underlying sql.DB for pool settings: %v\n", DBPoolErr)
-			err = DBPoolErr // Propagate this error
+		log.Println("Attempting to connect to SQLite database using GORM...")
+		var gormErr error
+		db, gormErr = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+			Logger: logger.Default.LogMode(logger.Info),
+		})
+		if gormErr != nil {
+			log.Printf("FATAL: Failed to connect to database %s: %v\n", dbPath, gormErr)
+			err = gormErr
+			return
+		}
+
+		sqlDB, dbPoolErr := db.DB()
+		if dbPoolErr != nil {
+			log.Printf("FATAL: Failed to get underlying sql.DB for pool settings: %v\n", dbPoolErr)
+			err = dbPoolErr
 			return
 		}
 		sqlDB.SetMaxIdleConns(10)
 		sqlDB.SetMaxOpenConns(100)
 		log.Printf("Successfully connected to SQLite database '%s' using GORM!", dbPath)
 	})
-	return err // This err is from the gorm.Open or db.DB() call inside once.Do
+	return err
 }
 
 // GetDB returns the initialized GORM database instance.

@@ -6,14 +6,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
-	"github.com/joho/godotenv"
 	"procurement/database"
 	"procurement/handlers"
 	appMiddleware "procurement/middleware"
 	"procurement/models"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/joho/godotenv"
 )
 
 func serveFrontend(r *chi.Mux, staticPath string) {
@@ -57,7 +58,7 @@ func main() {
 
 	r := chi.NewRouter()
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://procure.ujaotech.com", "https://procure.ujaotech.com"},
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:8081", "http://localhost:3000", "http://procure.ujaotech.com", "https://procure.ujaotech.com"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
@@ -105,8 +106,8 @@ func main() {
 	})
 
 	serveFrontend(r, "frontend/dist")
-	log.Println("Server starting on :8080, serving API and Frontend")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	log.Println("Server starting on :8081, serving API and Frontend")
+	if err := http.ListenAndServe(":8081", r); err != nil {
 		log.Fatalf("Could not start server: %s\n", err)
 	}
 }
