@@ -7,7 +7,7 @@ export PUBLIC_VITE_AUTH0_DOMAIN="dev-ewdolj0bwbq50dxr.us.auth0.com"
 export PUBLIC_VITE_AUTH0_CLIENT_ID="3k32lJ8QbOswQSI6QtTFzDNyJ3midrKm"
 export PUBLIC_VITE_AUTH0_CALLBACK_URL="http://localhost:8080/callback" # Use the container port
 export PUBLIC_VITE_AUTH0_AUDIENCE="procurement"
-export PUBLIC_VITE_API_BASE_URL="/api"
+export PUBLIC_VITE_API_BASE_URL="http://localhost:8080"
 
 
 echo "Building Docker image..."
