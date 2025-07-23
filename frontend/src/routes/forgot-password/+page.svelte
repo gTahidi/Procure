@@ -2,7 +2,7 @@
   import { checkAuthStatus } from '$lib/authService';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import LoginForm from '$lib/components/auth/LoginForm.svelte';
+  import RequestPasswordResetForm from '$lib/components/auth/RequestPasswordResetForm.svelte';
 
   onMount(() => {
     if (checkAuthStatus()) {
@@ -17,15 +17,15 @@
   <div class="max-w-md w-full space-y-8">
     <div class="text-center">
       <h2 class="mt-6 text-3xl font-extrabold text-gray-900">
-        Sign In
+        Reset Your Password
       </h2>
       <p class="mt-2 text-sm text-gray-600">
-        Enter your credentials to access your account
+        Enter your email address and we'll send you instructions to reset your password
       </p>
     </div>
 
     <div class="mt-8">
-      <LoginForm />
+      <RequestPasswordResetForm />
     </div>
   </div>
 </div>

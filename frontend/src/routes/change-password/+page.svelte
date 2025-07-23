@@ -2,13 +2,12 @@
   import { checkAuthStatus } from '$lib/authService';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import LoginForm from '$lib/components/auth/LoginForm.svelte';
+  import ChangePasswordForm from '$lib/components/auth/ChangePasswordForm.svelte';
 
   onMount(() => {
-    if (checkAuthStatus()) {
-      const url = new URL(window.location.href);
-      const redirectTo = url.searchParams.get('redirect_to') || '/';
-      goto(redirectTo, { replaceState: true });
+    // Redirect to login if not authenticated
+    if (!checkAuthStatus()) {
+      goto('/login?redirect_to=/change-password', { replaceState: true });
     }
   });
 </script>
@@ -17,15 +16,15 @@
   <div class="max-w-md w-full space-y-8">
     <div class="text-center">
       <h2 class="mt-6 text-3xl font-extrabold text-gray-900">
-        Sign In
+        Change Password
       </h2>
       <p class="mt-2 text-sm text-gray-600">
-        Enter your credentials to access your account
+        Update your password to keep your account secure
       </p>
     </div>
 
     <div class="mt-8">
-      <LoginForm />
+      <ChangePasswordForm />
     </div>
   </div>
 </div>

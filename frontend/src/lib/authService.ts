@@ -1,213 +1,295 @@
 // src/lib/authService.ts
-import {
-  createAuth0Client,
-  type Auth0Client,
-  type User as Auth0UserProfile,
-  type LogoutOptions,
-  type RedirectLoginOptions,
-  type GetTokenSilentlyOptions
-} from '@auth0/auth0-spa-js';
-import { auth0ClientStore, isAuthenticated, user, isLoading, authError } from './store';
-import type { AppUser } from './store'; 
-import { PUBLIC_VITE_AUTH0_DOMAIN, PUBLIC_VITE_AUTH0_CLIENT_ID, PUBLIC_VITE_AUTH0_CALLBACK_URL, PUBLIC_VITE_AUTH0_AUDIENCE } from '$env/static/public';
-import { get } from 'svelte/store';
+import { isAuthenticated, user, isLoading, authError } from './store';
+import type { AppUser } from './store';
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 
-async function createClient(): Promise<Auth0Client> {
-  const client = await createAuth0Client({
-    domain: PUBLIC_VITE_AUTH0_DOMAIN,
-    clientId: PUBLIC_VITE_AUTH0_CLIENT_ID,
-    authorizationParams: {
-      redirect_uri: PUBLIC_VITE_AUTH0_CALLBACK_URL,
-      audience: PUBLIC_VITE_AUTH0_AUDIENCE, // For requesting token for your Go API
-    },
-  });
-  return client;
+// Define interfaces for authentication requests and responses
+interface RegisterRequest {
+  email: string;
+  username: string;
+  password: string;
+  first_name?: string;
+  last_name?: string;
 }
 
+interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+interface AuthResponse {
+  token: string;
+  user: AppUser;
+}
+
+interface PasswordChangeRequest {
+  current_password: string;
+  new_password: string;
+}
+
+interface PasswordResetRequest {
+  email: string;
+}
+
+interface PasswordResetConfirmRequest {
+  token: string;
+  new_password: string;
+}
+
+// API base URL
+const API_BASE_URL = 'http://localhost:8080/api';
+
+// Token storage key
+const TOKEN_STORAGE_KEY = 'auth_token';
+const USER_STORAGE_KEY = 'auth_user';
+
+// Helper function to get stored token
+export function getStoredToken(): string | null {
+  if (!browser) return null;
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+// Helper function to get stored user
+function getStoredUser(): AppUser | null {
+  if (!browser) return null;
+  const userJson = localStorage.getItem(USER_STORAGE_KEY);
+  return userJson ? JSON.parse(userJson) : null;
+}
+
+// Helper function to store authentication data
+function storeAuthData(token: string, userData: AppUser): void {
+  if (!browser) return;
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData));
+}
+
+// Helper function to clear authentication data
+function clearAuthData(): void {
+  if (!browser) return;
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+// Initialize authentication state from local storage
 export async function initializeAuth(): Promise<void> {
-  if (!browser) return; // Ensure this runs only in the browser
-
-  isLoading.set(true); // Set loading at the very start
-
-  let client = get(auth0ClientStore);
-
-  if (!client) {
-    console.log('[authService initializeAuth] No existing client, creating new one...');
-    client = await createClient();
-    auth0ClientStore.set(client);
-    console.log('[authService initializeAuth] New Auth0 client created and stored.');
-  } else {
-    console.log('[authService initializeAuth] Using existing Auth0 client.');
-  }
-
-  // Check if this is a redirect from Auth0
-  if (window.location.search.includes('code=') && window.location.search.includes('state=')) {
-    console.log('[authService initializeAuth] Detected Auth0 redirect (code and state in URL). Calling handleRedirectCallback...');
-    // handleRedirectCallback will manage its own isLoading state and update user/isAuthenticated stores.
-    await handleRedirectCallback(); 
-    // IMPORTANT: Exit initializeAuth after handling the redirect. 
-    // isLoading.set(false) is handled by handleRedirectCallback's finally block.
-    return; 
-  }
-
-  // If not a redirect, check current authentication state
-  console.log('[authService initializeAuth] Not an Auth0 redirect. Checking current session status...');
-  try {
-    const currentlyAuthenticated = await client.isAuthenticated();
-    console.log('[authService initializeAuth] client.isAuthenticated() check result:', currentlyAuthenticated);
-    if (currentlyAuthenticated) {
-      const userProfile = await client.getUser(); // userProfile is Auth0UserProfile | undefined
-      console.log('[authService initializeAuth] User is authenticated (no redirect). Profile:', userProfile);
-      user.set(userProfile ? (userProfile as AppUser) : null); // Set AppUser or null
-      isAuthenticated.set(true);
-      authError.set(null);
-    } else {
-      console.log('[authService initializeAuth] User is NOT authenticated (no redirect).');
-      isAuthenticated.set(false);
-      user.set(null);
-      authError.set(null); // Not an error, just not logged in.
-    }
-  } catch (e: any) {
-    console.error('[authService initializeAuth] Error checking/refreshing session (non-redirect):', e);
-    authError.set(e);
-    isAuthenticated.set(false);
-    user.set(null);
-  } finally {
-    isLoading.set(false); // Ensure loading is false if it's the non-redirect path
-    console.log('[authService initializeAuth] initializeAuth finished (non-redirect path). isLoading:', get(isLoading));
-  }
-}
-
-export async function login(options?: RedirectLoginOptions): Promise<void> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for login');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return;
-  }
-  await client.loginWithRedirect(options);
-}
-
-async function handleRedirectCallback(): Promise<void> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for handleRedirectCallback');
-    // Ensure authError is set to trigger UI update
-    authError.set(new Error('Auth0 client not initialized.')); 
-    isAuthenticated.set(false); // Explicitly set isAuthenticated to false
-    user.set(null); // Explicitly set user to null
-    return;
-  }
+  if (!browser) return;
 
   isLoading.set(true);
+
   try {
-    console.log('[authService] Starting client.handleRedirectCallback()...');
-    await client.handleRedirectCallback(); // Exchanges code for tokens
-    console.log('[authService] client.handleRedirectCallback() completed.');
+    const token = getStoredToken();
+    const storedUser = getStoredUser();
 
-    // Get User Profile
-    const userProfile = await client.getUser(); // userProfile is Auth0UserProfile | undefined
-    console.log('[authService] client.getUser() profile:', userProfile);
-
-    // Get ID Token Claims
-    const idTokenClaims = await client.getIdTokenClaims();
-    console.log('[authService] client.getIdTokenClaims() result:', idTokenClaims);
-
-    // Attempt to get Access Token
-    let accessToken;
-    try {
-      accessToken = await client.getTokenSilently();
-      console.log('[authService] client.getTokenSilently() accessToken retrieved (details omitted for brevity).');
-      // For debugging, you could log the token itself but be careful with sharing full tokens.
-      // console.log('[authService] Access Token:', accessToken); 
-    } catch (tokenError) {
-      console.error('[authService] Error calling client.getTokenSilently():', tokenError);
-    }
-
-    if (userProfile) { // Or you could check idTokenClaims if that's more reliable for your setup
+    if (token && storedUser) {
+      user.set(storedUser);
       isAuthenticated.set(true);
-      user.set(userProfile as AppUser); // Cast to AppUser. Role/id will be undefined initially.
       authError.set(null);
-      console.log('[authService] User profile loaded and stores updated.');
     } else {
-      console.error('[authService] Token exchange likely successful, but no user profile (from getUser) or no ID token claims.');
       isAuthenticated.set(false);
       user.set(null);
-      authError.set(new Error('Login successful, but failed to retrieve user details. Check console for token claims.'));
+      authError.set(null);
     }
-    
-    // Remove query params from URL - should be safe to do even if userProfile is null
-    // as long as handleRedirectCallback itself didn't throw before this.
-    window.history.replaceState({}, document.title, window.location.pathname);
-    console.log('[authService] Query params removed from URL.');
-
-    // Navigate away from the callback page
-    await goto('/', { replaceState: true });
-    console.log('[authService] Redirect callback processed. Navigating to target path: /');
-
-  } catch (e: any) {
-    console.error('[authService] Error during redirect callback processing (outer try-catch):', e);
-    authError.set(e); // This is likely where "Login required" or similar Auth0 errors are caught
+  } catch (error: any) {
+    console.error('Error initializing auth:', error);
+    authError.set(error);
     isAuthenticated.set(false);
     user.set(null);
+    clearAuthData();
   } finally {
     isLoading.set(false);
-    console.log('[authService] handleRedirectCallback finally block. isLoading:', get(isLoading));
   }
 }
 
-export async function logout(options?: LogoutOptions): Promise<void> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for logout');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return;
-  }
-  
-  // Ensure callback URL is defined for logout, falling back to origin
-  const logoutOptions: LogoutOptions = { ...options }; // Use LogoutOptions type
-  if (!logoutOptions.logoutParams?.returnTo) {
-    logoutOptions.logoutParams = { ...logoutOptions.logoutParams, returnTo: window.location.origin };
-  }
+// Register a new user
+export async function register(email: string, username: string, password: string, firstName?: string, lastName?: string): Promise<void> {
+  isLoading.set(true);
+  authError.set(null);
 
-  isAuthenticated.set(false);
-  user.set(null);
-  await client.logout(logoutOptions);
-}
-
-// Function to get an access token
-export async function getAccessTokenSilently(options?: Omit<GetTokenSilentlyOptions, 'detailedResponse'>): Promise<string | undefined> {
-  const client = get(auth0ClientStore);
-  if (!client) {
-    console.error('Auth0 client not initialized for getAccessTokenSilently');
-    authError.set(new Error('Auth0 client not initialized.'));
-    return undefined;
-  }
   try {
-    // Ensure options don't ask for detailedResponse to match return type string
-    const token = await client.getTokenSilently(options);
-    return token;
-  } catch (e: any) {
-    console.error('Error getting token silently:', e);
-    if (e.error === 'login_required' || e.error === 'consent_required') {
-      // Consider triggering interactive login if appropriate
-      // await login({ appState: { targetUrl: window.location.pathname } });
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        username,
+        password,
+        first_name: firstName,
+        last_name: lastName,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(errorData || 'Registration failed');
     }
-    authError.set(e);
-    return undefined;
+
+    const data: AuthResponse = await response.json();
+
+    // Store token and user data
+    storeAuthData(data.token, data.user);
+
+    // Update stores
+    user.set(data.user);
+    isAuthenticated.set(true);
+
+    // Navigate to home page
+    await goto('/');
+  } catch (error: any) {
+    console.error('Registration error:', error);
+    authError.set(error);
+    throw error;
+  } finally {
+    isLoading.set(false);
   }
 }
 
-/**
- * Checks the current authentication status from the store.
- * Does not make an API call; reflects the last known state.
- * @returns boolean indicating if user is currently marked as authenticated.
- */
+// Login user
+export async function login(email: string, password: string): Promise<void> {
+  isLoading.set(true);
+  authError.set(null);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(errorData || 'Login failed');
+    }
+
+    const data: AuthResponse = await response.json();
+
+    // Store token and user data
+    storeAuthData(data.token, data.user);
+
+    // Update stores
+    user.set(data.user);
+    isAuthenticated.set(true);
+
+    // Navigate to home page
+    await goto('/');
+  } catch (error: any) {
+    console.error('Login error:', error);
+    authError.set(error);
+    throw error;
+  } finally {
+    isLoading.set(false);
+  }
+}
+
+// Logout user
+export async function logout(): Promise<void> {
+  isLoading.set(true);
+
+  try {
+    const token = getStoredToken();
+
+    if (token) {
+      // Call logout endpoint to invalidate token
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
+    // Continue with logout even if server request fails
+  } finally {
+    // Clear local storage and update stores
+    clearAuthData();
+    user.set(null);
+    isAuthenticated.set(false);
+    isLoading.set(false);
+
+    // Navigate to login page
+    await goto('/login');
+  }
+}
+
+// Change password
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const token = getStoredToken();
+  if (!token) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/auth/password/change`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(errorData || 'Password change failed');
+  }
+}
+
+// Request password reset
+export async function requestPasswordReset(email: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/auth/password/reset/request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(errorData || 'Password reset request failed');
+  }
+}
+
+// Reset password with token
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/auth/password/reset/confirm`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      token,
+      new_password: newPassword
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(errorData || 'Password reset failed');
+  }
+}
+
+// Check if user is authenticated
 export function checkAuthStatus(): boolean {
   if (!browser) return false;
-  let currentAuthStatus = false;
-  isAuthenticated.subscribe(value => currentAuthStatus = value)(); // Get current value
-  return currentAuthStatus;
+
+  const token = getStoredToken();
+  return !!token;
+}
+
+// Get access token for API calls
+export function getAccessToken(): string | null {
+  return getStoredToken();
+}
+
+// Get current user
+export function getCurrentUser(): AppUser | null {
+  return getStoredUser();
 }

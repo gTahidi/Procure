@@ -30,8 +30,10 @@ func SyncUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Convert string to *string for Auth0ID
+	auth0ID := payload.Auth0ID
 	user := models.User{
-		Auth0ID: payload.Auth0ID, // Condition for FirstOrCreate
+		Auth0ID: &auth0ID, // Condition for FirstOrCreate
 	}
 
 	// Data to assign if creating or updating. GORM will only update these fields.
@@ -47,7 +49,8 @@ func SyncUserHandler(w http.ResponseWriter, r *http.Request) {
 	// FirstOrCreate will find the user by Auth0ID or create a new one if not found.
 	// Assign will update the fields specified in assignData for both found and new records.
 	// If you only want to update on create, use .Attrs() instead of .Assign() for creation-only fields.
-	result := dbConn.Where(models.User{Auth0ID: payload.Auth0ID}).Assign(assignData).FirstOrCreate(&user)
+	auth0IDForWhere := payload.Auth0ID
+	result := dbConn.Where(models.User{Auth0ID: &auth0IDForWhere}).Assign(assignData).FirstOrCreate(&user)
 
 	if result.Error != nil {
 		log.Printf("ERROR: SyncUserHandler: Database error during FirstOrCreate/Assign: %v", result.Error)

@@ -80,6 +80,8 @@ func SetupDatabaseSchema() {
 		&models.Tender{}, // Add Tender model for auto-migration
 		&models.Bid{},
 		&models.BidItem{},
+		&models.PasswordReset{}, // Add PasswordReset model for auto-migration
+		&models.Session{},       // Add Session model for auto-migration
 	)
 	if err != nil {
 		// If models.User was the only thing being migrated and it's commented out,
@@ -87,6 +89,16 @@ func SetupDatabaseSchema() {
 		// However, if AutoMigrate([]) is called with no arguments and still returns an error,
 		// this log will catch it.
 		log.Fatalf("FATAL: Failed to auto-migrate database schema (or no models to migrate): %v", err)
+	}
+
+	// Run SQL migrations for authentication
+	sqlDB, err := dbInstance.DB()
+	if err != nil {
+		log.Fatalf("FATAL: Failed to get underlying sql.DB for auth migrations: %v", err)
+	}
+	
+	if err := RunAuthMigrations(sqlDB); err != nil {
+		log.Fatalf("FATAL: Failed to run authentication migrations: %v", err)
 	}
 
 	log.Println("INFO: Database schema auto-migration complete (or no changes needed/skipped).")

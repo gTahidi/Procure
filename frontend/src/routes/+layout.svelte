@@ -3,7 +3,7 @@
   import { initializeAuth, logout } from '$lib/authService';
   import { user, isAuthenticated, isLoading, authError } from '$lib/store';
   import { syncUserToDb } from '$lib/userService'; 
-  import type { User as Auth0UserProfile } from '@auth0/auth0-spa-js';
+  import type { AppUser } from '$lib/store';
   import { page } from '$app/stores';
   import { fly } from 'svelte/transition';
   import { sineInOut } from 'svelte/easing';
@@ -12,7 +12,7 @@
 
   let initialAuthDone = false;
   let sidebarOpen = true;
-  let currentUser: Auth0UserProfile | null = null;
+  let currentUser: AppUser | null = null;
 
   function toggleSidebar() {
     sidebarOpen = !sidebarOpen;
@@ -38,13 +38,13 @@
       await initializeAuth();
 
       // After initializeAuth, check if user is authenticated and sync to DB if needed.
-      // Note: The 'currentUser' variable here is typed as Auth0UserProfile and might not yet have the role.
+      // Note: The 'currentUser' variable here might not yet have the role.
       // The 'user' store ($user) will be updated by syncUserToDb with the role.
-      const unsubscribeUser = user.subscribe((value: Auth0UserProfile | null) => { currentUser = value; });
+      const unsubscribeUser = user.subscribe((value: AppUser | null) => { currentUser = value; });
       let currentAuthStatus: boolean = false;
       const unsubscribeAuth = isAuthenticated.subscribe((value: boolean) => { currentAuthStatus = value; });
 
-      if (currentAuthStatus && currentUser) { // currentUser here is the basic Auth0 profile
+      if (currentAuthStatus && currentUser) { // currentUser here is the basic user profile
         try {
           console.log('Layout: User is authenticated, attempting to sync to DB...');
           await syncUserToDb(); // Call syncUserToDb without arguments
@@ -155,14 +155,14 @@
             {console.log('Sidebar user object:', $user)} 
             <div class="user-info my-2 flex flex-col items-center" class:items-start={sidebarOpen} class:px-4={sidebarOpen}>
               {#if $user.picture_url}
-                <img src={$user.picture_url} alt="{$user && ($user.name || 'User')}'s profile picture" class="rounded-full mb-2" class:w-10={!sidebarOpen} class:h-10={!sidebarOpen} class:w-12={sidebarOpen} class:h-12={sidebarOpen} referrerpolicy="no-referrer" />
+                <img src={$user.picture_url} alt="{$user && ($user.username || 'User')}'s profile picture" class="rounded-full mb-2" class:w-10={!sidebarOpen} class:h-10={!sidebarOpen} class:w-12={sidebarOpen} class:h-12={sidebarOpen} referrerpolicy="no-referrer" />
               {:else}
                 <div class="rounded-full bg-gray-600 flex items-center justify-center text-white mb-2" class:w-10={!sidebarOpen} class:h-10={!sidebarOpen} class:w-12={sidebarOpen} class:h-12={sidebarOpen} class:text-lg={!sidebarOpen} class:text-xl={sidebarOpen}>
-                  {($user && ($user.name || $user.email || 'U')).charAt(0).toUpperCase()}
+                  {($user && ($user.username || $user.email || 'U')).charAt(0).toUpperCase()}
                 </div>
               {/if}
               {#if sidebarOpen}
-                <span class="block text-sm font-semibold">{$user && ($user.name || $user.email)}</span>
+                <span class="block text-sm font-semibold">{$user && ($user.username || $user.email)}</span>
                 {#if $user && $user.role}
                   <span class="block text-xs text-gray-400 capitalize">{$user.role}</span>
                 {/if}

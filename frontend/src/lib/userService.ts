@@ -1,5 +1,5 @@
 // frontend/src/lib/userService.ts
-import { getAccessTokenSilently } from './authService'; // To get Auth0 token
+import { getAccessToken } from './authService'; // Updated to use our new function
 import { user } from './store'; // Import the user store directly
 import type { AppUser } from './store'; // Import the AppUser type
 import { get } from 'svelte/store';
@@ -9,31 +9,30 @@ import { get } from 'svelte/store';
  * This should match the expected structure of your Go backend's /api/users/sync endpoint.
  */
 export interface UserSyncPayload {
-  auth0_id: string;       // Typically the 'sub' claim from Auth0 user profile
-  email: string | undefined;
-  name?: string | undefined;
-  picture?: string | undefined;
-  // Add any other fields from the Auth0 user profile that your backend needs to store.
-  // Example: nickname?: string;
+  username: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  // Add any other fields that your backend needs to store
 }
 
 /**
- * Synchronizes the authenticated Auth0 user's data with the application's backend database.
- * This function should be called after a user successfully logs in via Auth0
- * and their profile is available in the auth0UserStore.
+ * Synchronizes the authenticated user's data with the application's backend database.
+ * This function should be called after a user successfully logs in
+ * and their profile is available in the user store.
  */
 export async function syncUserToDb(): Promise<void> {
-  const auth0User = get(user); // Get the current Auth0 user profile from the Svelte store
+  const currentUser = get(user); // Get the current user profile from the Svelte store
 
-  // Ensure there is an Auth0 user and, critically, an ID (sub claim) to sync against.
-  if (!auth0User || !auth0User.sub) {
-    console.warn('syncUserToDb: No Auth0 user data or auth0_id (sub) found in store. Skipping sync.');
-    return; // Exit if no user or sub (Auth0 ID) is found
+  // Ensure there is a user to sync
+  if (!currentUser || !currentUser.email) {
+    console.warn('syncUserToDb: No user data found in store. Skipping sync.');
+    return; // Exit if no user is found
   }
 
   try {
-    // Obtain an access token from Auth0. This token will be used to authenticate the request to your backend.
-    const accessToken = await getAccessTokenSilently();
+    // Obtain an access token. This token will be used to authenticate the request to your backend.
+    const accessToken = getAccessToken();
     if (!accessToken) {
       console.error('syncUserToDb: Failed to obtain access token. Cannot sync user.');
       return; // Exit if no access token could be retrieved
@@ -41,14 +40,9 @@ export async function syncUserToDb(): Promise<void> {
 
     // Prepare the payload with the data to be sent to the backend.
     const payload: UserSyncPayload = {
-      auth0_id: auth0User.sub,       // 'sub' is the standard Auth0 unique user identifier
-      email: auth0User.email,
-      name: auth0User.name || auth0User.nickname, // Use name, fallback to nickname if available
-      picture: auth0User.picture,
-      // Map other relevant Auth0 user fields to your payload as needed:
-      // nickname: auth0User.nickname,
-      // given_name: auth0User.given_name,
-      // family_name: auth0User.family_name,
+      username: currentUser.username,
+      email: currentUser.email,
+      // Add any other fields that your backend needs
     };
 
     // Make the API call to your backend's sync endpoint.
@@ -56,7 +50,7 @@ export async function syncUserToDb(): Promise<void> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`, // Send the Auth0 access token for backend verification
+        'Authorization': `Bearer ${accessToken}`, // Send the access token for backend verification
       },
       body: JSON.stringify(payload),
     });
@@ -81,10 +75,6 @@ export async function syncUserToDb(): Promise<void> {
 
     // Update the user store with the full user details from the backend (including role and id)
     user.set(responseData);
-
-    // TODO: Optionally, update any local application state based on the backend's response.
-    // For example, if your backend assigns an internal ID to the user and returns it,
-    // you might store that in a Svelte store or use it to update the UI.
 
   } catch (error) {
     // Handle network errors or other issues during the fetch operation or token retrieval.

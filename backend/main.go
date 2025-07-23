@@ -50,6 +50,8 @@ func main() {
 		&models.Tender{},
 		&models.Bid{},
 		&models.BidItem{},
+		&models.PasswordReset{},
+		&models.Session{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -70,18 +72,43 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	auth0Domain := os.Getenv("AUTH0_DOMAIN")
-	auth0Audience := os.Getenv("AUTH0_AUDIENCE")
-
-	authValidator, err := appMiddleware.NewValidator(auth0Domain, auth0Audience)
-	if err != nil {
-		log.Fatalf("Failed to create authentication validator: %v", err)
+	// Set up JWT secret key for our authentication system
+	if os.Getenv("JWT_SECRET_KEY") == "" {
+		log.Println("WARNING: JWT_SECRET_KEY environment variable not set. Using default value for development.")
+		os.Setenv("JWT_SECRET_KEY", "development-secret-key-change-in-production")
 	}
+	
+	// Keep these for backward compatibility with existing code
+	// auth0Domain := os.Getenv("AUTH0_DOMAIN")
+	// auth0Audience := os.Getenv("AUTH0_AUDIENCE")
+
+	// authValidator, err := appMiddleware.NewValidator(auth0Domain, auth0Audience)
+	// if err != nil {
+	// 	log.Fatalf("Failed to create authentication validator: %v", err)
+	// }
 
 	r.Route("/api", func(apiRouter chi.Router) {
+		// Register authentication routes
+		authController, err := handlers.NewAuthController()
+		if err != nil {
+			log.Fatalf("Failed to create auth controller: %v", err)
+		}
+		authController.RegisterRoutes(apiRouter)
+		
+		// Register user routes
 		handlers.RegisterUserRoutes(apiRouter)
+		
+		// Protected routes
 		apiRouter.Group(func(authRouter chi.Router) {
-			authRouter.Use(appMiddleware.TokenMiddleware(authValidator))
+			// Create auth middleware
+			authMiddleware, err := appMiddleware.NewAuthMiddleware()
+			if err != nil {
+				log.Fatalf("Failed to create auth middleware: %v", err)
+			}
+			
+			// Apply authentication middleware
+			authRouter.Use(authMiddleware.Authenticate)
+			
 			authRouter.Post("/requisitions", handlers.CreateRequisitionHandler)
 			authRouter.Get("/requisitions", handlers.ListRequisitionsHandler)
 			authRouter.Get("/requisitions/{id}", handlers.GetRequisitionHandler)

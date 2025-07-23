@@ -2,189 +2,121 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
-	"log"
-	"net/http"
-	"strings"
-	"time"
-
 	"errors"
+	"net/http"
 	"procurement/database"
 	"procurement/models"
+	"procurement/services"
+	"strings"
 
 	"gorm.io/gorm"
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
-// Validator is a struct that holds the necessary information for JWT validation.
-type Validator struct {
-	Audience string
-	Issuer   string
-	jwks     *jose.JSONWebKeySet
+// AuthMiddleware handles JWT authentication and authorization
+type AuthMiddleware struct {
+	TokenService services.TokenService
+	DB           *gorm.DB
 }
 
-// NewValidator creates a new Validator and fetches the JWKS from the Auth0 domain.
-func NewValidator(domain, audience string) (*Validator, error) {
-	// The issuer in the JWT token is the full URL of the Auth0 domain.
-	issuerURL := "https://" + domain + "/"
-
-	// The JWKS endpoint is located at a specific path on that domain.
-	jwksURL := issuerURL + ".well-known/jwks.json"
-
-	resp, err := http.Get(jwksURL)
+// NewAuthMiddleware creates a new AuthMiddleware
+func NewAuthMiddleware() (*AuthMiddleware, error) {
+	tokenService, err := services.NewJWTTokenService()
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	var jwks jose.JSONWebKeySet
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return nil, err
-	}
-
-	return &Validator{
-		Audience: audience,
-		Issuer:   issuerURL, // Use the full URL for validation.
-		jwks:     &jwks,
+	return &AuthMiddleware{
+		TokenService: tokenService,
+		DB:           database.GetDB(),
 	}, nil
 }
 
-// UserInfo represents the user information returned from the Auth0 /userinfo endpoint.
-type UserInfo struct {
-	Sub        string `json:"sub"`
-	Name       string `json:"name"`
-	GivenName  string `json:"given_name"`
-	FamilyName string `json:"family_name"`
-	Nickname   string `json:"nickname"`
-	Email      string `json:"email"`
-	Picture    string `json:"picture"`
+// Authenticate validates the JWT token and adds the user ID to the request context
+func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get token from Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header is required", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if the header has the correct format
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			http.Error(w, "Authorization header format must be Bearer {token}", http.StatusUnauthorized)
+			return
+		}
+		tokenString := parts[1]
+
+		// Validate token
+		claims, err := m.TokenService.ValidateToken(tokenString)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if token is blacklisted/invalidated
+		var session models.Session
+		result := m.DB.Where("token = ? AND is_valid = ?", tokenString, false).First(&session)
+		if result.Error == nil {
+			// Token is blacklisted
+			http.Error(w, "Token has been invalidated", http.StatusUnauthorized)
+			return
+		} else if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			// Database error
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if user exists and is active
+		var user models.User
+		if result := m.DB.First(&user, claims.UserID); result.Error != nil {
+			http.Error(w, "User not found", http.StatusUnauthorized)
+			return
+		}
+
+		if !user.IsActive {
+			http.Error(w, "User account is inactive", http.StatusForbidden)
+			return
+		}
+
+		// Add user ID and role to context
+		ctx := context.WithValue(r.Context(), "userID", claims.UserID)
+		ctx = context.WithValue(ctx, "userRole", claims.Role)
+
+		// Call the next handler with the updated context
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-// TokenMiddleware verifies the JWT token and adds the user's internal ID to the request context.
-func TokenMiddleware(validator *Validator) func(http.Handler) http.Handler {
+// RequireRole checks if the user has the required role
+func (m *AuthMiddleware) RequireRole(roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 1. Get token from header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				log.Println("Auth Error: Authorization header is required")
-				http.Error(w, "Authorization header is required", http.StatusUnauthorized)
+			// Get user role from context
+			role, ok := r.Context().Value("userRole").(string)
+			if !ok {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				log.Printf("Auth Error: Invalid header format: %s", authHeader)
-				http.Error(w, "Authorization header format must be Bearer {token}", http.StatusUnauthorized)
-				return
-			}
-			tokenString := parts[1]
-
-			// 2. Parse and validate the token
-			token, err := jwt.ParseSigned(tokenString)
-			if err != nil {
-				log.Printf("Auth Error: Failed to parse token: %v", err)
-				http.Error(w, "Invalid token format", http.StatusUnauthorized)
-				return
-			}
-
-			// 3. Get claims and verify signature with JWKS
-			claims := &jwt.Claims{}
-			if err := token.Claims(validator.jwks, claims); err != nil {
-				log.Printf("Auth Error: Failed to validate token signature with JWKS: %v", err)
-				http.Error(w, "Invalid token signature", http.StatusUnauthorized)
-				return
-			}
-
-			// 4. Validate the claims (audience, issuer, expiry)
-			log.Printf("Auth Check: Token Claims: Issuer=[%s], Audience=%s", claims.Issuer, claims.Audience)
-			log.Printf("Auth Check: Validator Config: Issuer=[%s], Audience=[%s]", validator.Issuer, validator.Audience)
-			expected := jwt.Expected{
-				Audience: claims.Audience,
-				Issuer:   validator.Issuer,
-				Time:     time.Now(),
-			}
-			if err := claims.Validate(expected); err != nil {
-				log.Printf("Auth Error: Token claims validation failed: %v", err)
-				http.Error(w, "Token claims validation failed", http.StatusUnauthorized)
-				return
-			}
-
-			log.Println("Auth Success: Token is valid")
-
-			// 5. Find user in DB. If not found, create one (JIT Provisioning).
-			db := database.GetDB()
-			var user models.User
-			if err := db.Where("auth0_id = ?", claims.Subject).First(&user).Error; err != nil {
-				// If the user is not found, we create them in our database.
-				if (errors.Is(err, gorm.ErrRecordNotFound)) {
-					log.Printf("JIT Provisioning: User with Auth0ID '%s' not found. Creating new user.", claims.Subject)
-
-					// Fetch user info from Auth0
-					userInfo, err := fetchUserInfo(validator.Issuer, tokenString)
-					if err != nil {
-						log.Printf("JIT Error: Failed to fetch user info: %v", err)
-						http.Error(w, "Failed to provision user", http.StatusInternalServerError)
-						return
-					}
-
-					// Create new user
-					newUser := models.User{
-						Auth0ID:    claims.Subject,
-						Email:      userInfo.Email,
-						Username:   userInfo.Email, // Use email as username for uniqueness
-						PictureURL: userInfo.Picture,
-						Role:       "requester", // Default role
-						IsActive:   true,
-					}
-
-					if err := db.Create(&newUser).Error; err != nil {
-						log.Printf("JIT Error: Failed to create user in DB: %v", err)
-						http.Error(w, "Failed to create user", http.StatusInternalServerError)
-						return
-					}
-					user = newUser // Use the newly created user
-				} else {
-					// For any other database error, deny access.
-					log.Printf("DB Error: Failed to query user: %v", err)
-					http.Error(w, "Database error", http.StatusInternalServerError)
-					return
+			// Check if user has one of the required roles
+			hasRole := false
+			for _, requiredRole := range roles {
+				if role == requiredRole {
+					hasRole = true
+					break
 				}
 			}
 
-			ctx := context.WithValue(r.Context(), "userID", user.ID)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			if !hasRole {
+				http.Error(w, "Forbidden: insufficient permissions", http.StatusForbidden)
+				return
+			}
+
+			// Call the next handler
+			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// fetchUserInfo calls the Auth0 /userinfo endpoint to get user details.
-func fetchUserInfo(issuer, token string) (*UserInfo, error) {
-	userInfoURL := issuer + "userinfo"
-
-	req, err := http.NewRequest("GET", userInfoURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", "Bearer "+token)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Auth0 API Error: Received status code %d from /userinfo", resp.StatusCode)
-		return nil, errors.New("failed to fetch user info from Auth0")
-	}
-
-	var userInfo UserInfo
-	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
-		return nil, err
-	}
-
-	return &userInfo, nil
 }
