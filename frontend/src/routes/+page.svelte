@@ -1,6 +1,6 @@
 <script lang="ts">
   import { user } from '$lib/store';
-  import { getAccessTokenSilently, login } from '$lib/authService';
+  import { getAccessToken, login } from '$lib/authService';
   import { PUBLIC_VITE_API_BASE_URL} from '$env/static/public';
 
   // Interfaces for our data structures
@@ -70,7 +70,7 @@
     error = null;
 
     try {
-      const token = await getAccessTokenSilently();
+      const token = getAccessToken();
       if (!token) throw new Error('Could not retrieve access token.');
 
       const headers = { Authorization: `Bearer ${token}` };
@@ -108,7 +108,7 @@
     myError = null;
 
     try {
-      const token = await getAccessTokenSilently();
+      const token = getAccessToken();
       if (!token) throw new Error('Could not retrieve access token.');
       const headers = { Authorization: `Bearer ${token}` };
 
@@ -158,7 +158,7 @@
     supplierError = null;
 
     try {
-      const token = await getAccessTokenSilently();
+      const token = getAccessToken();
       if (!token) throw new Error('Could not retrieve access token.');
       const headers = { Authorization: `Bearer ${token}` };
 

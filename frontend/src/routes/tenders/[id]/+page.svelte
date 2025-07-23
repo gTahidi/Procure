@@ -4,7 +4,7 @@
 	import type { PageData } from './$types';
 	import type { Tender, Bid, BidItem, RequisitionItem } from '$lib/types'; // Added Bid, BidItem, RequisitionItem
 	import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
-	import { getAccessTokenSilently } from '$lib/authService';
+	import { getAccessToken } from '$lib/authService';
 	import { user } from '$lib/store';
 
 	export let data: PageData;
@@ -148,7 +148,7 @@
 		// For now, sending null for empty optional fields is generally fine for GORM *type fields.
 
 		try {
-			const token = await getAccessTokenSilently();
+			const token = getAccessToken();
 			if (!token) {
 				errorMessage = 'Authentication token not available. Please log in again.';
 				isLoading = false;
@@ -210,7 +210,7 @@
 		bidSubmissionSuccess = null;
 
 		try {
-			const token = await getAccessTokenSilently();
+			const token = getAccessToken();
 			if (!token) {
 				bidSubmissionError = 'Authentication token not available. Please log in again.';
 				isSubmittingBid = false;
@@ -293,7 +293,7 @@
 		errorMessage = null;
 
 		try {
-			const token = await getAccessTokenSilently();
+			const token = getAccessToken();
 			if (!token) {
 				errorMessage = 'Authentication token not available. Please log in again.';
 				isLoading = false;

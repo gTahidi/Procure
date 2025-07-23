@@ -1,6 +1,6 @@
 import type { PageLoad, PageLoadEvent } from './$types';
 import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
-import { getAccessTokenSilently } from '$lib/authService';
+import { getAccessToken } from '$lib/authService';
 import { isAuthenticated } from '$lib/store';
 import { get } from 'svelte/store';
 import { redirect } from '@sveltejs/kit';
@@ -37,7 +37,7 @@ export const load: PageLoad = async (event: PageLoadEvent) => {
 
   let token: string | undefined;
   try {
-    token = await getAccessTokenSilently();
+    token = getAccessToken() || undefined;
     if (!token) {
       console.error('[+page.ts /requisitions] Authenticated, but failed to retrieve access token.');
       return {

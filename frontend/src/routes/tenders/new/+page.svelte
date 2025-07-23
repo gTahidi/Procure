@@ -3,7 +3,7 @@
 	import type { Tender } from '$lib/types';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getAccessTokenSilently } from '$lib/authService';
+	import { getAccessToken } from '$lib/authService';
 	import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 
 	// Simplified interfaces for what we expect from the requisition endpoint
@@ -56,7 +56,7 @@
 				isLoading = true;
 				errorMessage = null;
 				try {
-					const token = await getAccessTokenSilently();
+					const token = getAccessToken();
 					if (!token) {
 						throw new Error('Authentication token not available. Please log in.');
 					}
@@ -114,7 +114,7 @@
 		}
 
 		try {
-			const token = await getAccessTokenSilently();
+			const token = getAccessToken();
 			if (!token) {
 				errorMessage = 'Authentication token not available. Please log in.';
 				isLoading = false;

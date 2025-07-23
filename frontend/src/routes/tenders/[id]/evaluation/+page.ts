@@ -2,7 +2,7 @@ import type { PageLoad } from './$types';
 import type { Tender, Bid } from '$lib/types';
 import type { LoadEvent } from '@sveltejs/kit';
 import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
-import { getAccessTokenSilently } from '$lib/authService';
+import { getAccessToken } from '$lib/authService';
 import { isAuthenticated, user as userStore } from '$lib/store';
 import { get } from 'svelte/store';
 import { redirect, error as svelteKitError } from '@sveltejs/kit';
@@ -21,7 +21,7 @@ export const load: PageLoad = async ({ params, fetch, depends }: LoadEvent) => {
 	}
 
 	try {
-		const token = await getAccessTokenSilently();
+		const token = getAccessToken();
 		if (!token) {
 			throw svelteKitError(401, 'Authentication token not available. Please log in again.');
 		}

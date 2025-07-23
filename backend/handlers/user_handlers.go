@@ -30,27 +30,25 @@ func SyncUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert string to *string for Auth0ID
-	auth0ID := payload.Auth0ID
+	// Find user by email, as it's the stable unique identifier
 	user := models.User{
-		Auth0ID: &auth0ID, // Condition for FirstOrCreate
+		Email: payload.Email, // Condition for FirstOrCreate
 	}
 
-	// Data to assign if creating or updating. GORM will only update these fields.
+	// Data to assign if creating or updating.
 	assignData := models.User{
-		Username:   payload.Name, // Assuming payload.Name maps to models.User.Username
-		Email:      payload.Email,
+		Username:   payload.Name,
 		PictureURL: payload.Picture,
-		// Role is set by default in the model or can be managed separately
-		// Department and ContactNumber are pointers and will be nil if not set here
-		// IsActive is true by default in the model
+		// The Auth0ID might be empty now, so we ensure it's handled correctly.
+		// If payload.Auth0ID is not empty, it will be set.
+	}
+	if payload.Auth0ID != "" {
+		assignData.Auth0ID = &payload.Auth0ID
 	}
 
-	// FirstOrCreate will find the user by Auth0ID or create a new one if not found.
-	// Assign will update the fields specified in assignData for both found and new records.
-	// If you only want to update on create, use .Attrs() instead of .Assign() for creation-only fields.
-	auth0IDForWhere := payload.Auth0ID
-	result := dbConn.Where(models.User{Auth0ID: &auth0IDForWhere}).Assign(assignData).FirstOrCreate(&user)
+	// FirstOrCreate will find the user by Email or create a new one if not found.
+	// Assign will update the fields in assignData for both found and new records.
+	result := dbConn.Where(models.User{Email: payload.Email}).Assign(assignData).FirstOrCreate(&user)
 
 	if result.Error != nil {
 		log.Printf("ERROR: SyncUserHandler: Database error during FirstOrCreate/Assign: %v", result.Error)

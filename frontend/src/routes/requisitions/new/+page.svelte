@@ -3,7 +3,7 @@
 	import { user } from '$lib/store';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getAccessTokenSilently } from '$lib/authService'; // Import getAccessTokenSilently
+	import { getAccessToken } from '$lib/authService'; // Import getAccessTokenSilently
 	import type { RequisitionItem as BaseRequisitionItem } from '../../../lib/types';
 
 	// Local type for form items, extending base for UI specific fields
@@ -106,7 +106,7 @@
 		// Fetch the access token
 		let token;
 		try {
-			token = await getAccessTokenSilently();
+			token = getAccessToken();
 			if (!token) {
 				submissionMessage = 'Error: Could not retrieve authentication token. Please log in again.';
 				loading = false;

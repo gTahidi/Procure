@@ -2,7 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { isAuthenticated } from '$lib/store';
 import { get } from 'svelte/store';
-import { getAccessTokenSilently } from '$lib/authService';
+import { getAccessToken } from '$lib/authService';
 import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 
 export const load: PageLoad = async ({ params, fetch }) => {
@@ -15,7 +15,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
 		throw error(400, 'Requisition ID is missing');
 	}
 
-	const token = await getAccessTokenSilently();
+	const token = getAccessToken();
 	if (!token) {
 		throw error(401, 'Not authorized. Please log in again.');
 	}

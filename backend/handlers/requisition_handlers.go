@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"procurement/database" // Module name 'procurement' then path
 	"procurement/models"
-	"time" // Needed for setting approval timestamps
+	"strconv" // Added for strconv.ParseInt
+	"strings" // Added for strings.EqualFold
+	"time"    // Needed for setting approval timestamps
+
 	"gorm.io/gorm" // Added for gorm.ErrRecordNotFound or other GORM specific needs
-	"strconv"      // Added for strconv.ParseInt
-	"strings"      // Added for strings.EqualFold
 
 	"github.com/go-chi/chi/v5" // Added for chi.URLParam
 )
@@ -28,11 +29,18 @@ func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Basic Validation (example)
-	if reqPayload.UserID == 0 {
-		RespondWithError(w, http.StatusBadRequest, "UserID is required")
+	// Get User ID from context
+	userID, ok := r.Context().Value("userID").(uint)
+	if !ok {
+		log.Println("ERROR: CreateRequisitionHandler: Could not retrieve userID from context or type assertion failed.")
+		RespondWithError(w, http.StatusInternalServerError, "Could not process request: user authentication issue.")
 		return
 	}
+
+	// Assign the authenticated user's ID to the requisition
+	reqPayload.UserID = int64(userID)
+
+	// Basic Validation (example)
 	if reqPayload.Type == "" {
 		RespondWithError(w, http.StatusBadRequest, "Requisition type is required")
 		return
@@ -86,7 +94,7 @@ func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 	if len(itemsToCreate) > 0 {
 		for i := range itemsToCreate {
 			itemsToCreate[i].RequisitionID = reqPayload.ID // Set the foreign key
-			itemsToCreate[i].ID = 0                       // CRITICAL: Ensure GORM treats item as new for auto-increment ID
+			itemsToCreate[i].ID = 0                        // CRITICAL: Ensure GORM treats item as new for auto-increment ID
 
 			if err := tx.Create(&itemsToCreate[i]).Error; err != nil {
 				log.Printf("ERROR: CreateRequisitionHandler: Failed to insert requisition item ('%s'): %v\n", itemsToCreate[i].Description, err)
@@ -108,7 +116,7 @@ func CreateRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 	// --- End Transactional Operations ---
 
 	log.Printf("INFO: CreateRequisitionHandler: Successfully created requisition ID %d with %d items\n", reqPayload.ID, len(itemsToCreate))
-	
+
 	// To send back the full requisition with its newly created items (and their DB-generated IDs):
 	// We need to reload the requisition with its items. The `reqPayload` has the main requisition details,
 	// and `itemsToCreate` has the item details with their new IDs.
@@ -273,7 +281,7 @@ func GetRequisitionHandler(w http.ResponseWriter, r *http.Request) {
 
 // RequisitionActionPayload defines the structure for the request body of requisition actions
 type RequisitionActionPayload struct {
-	Action string `json:"action"` // "approve" or "reject"
+	Action string `json:"action"`           // "approve" or "reject"
 	Reason string `json:"reason,omitempty"` // Required if action is "reject"
 }
 
@@ -480,7 +488,7 @@ func HandleRequisitionAction(w http.ResponseWriter, r *http.Request) {
 		requisition.Status = models.RequisitionStatusRejected
 		requisition.RejectionReason = &payload.Reason
 		// Optionally, clear approval fields if it's rejected after first approval
-		// requisition.ApproverOneID = nil 
+		// requisition.ApproverOneID = nil
 		// requisition.ApprovedOneAt = nil
 		log.Printf("INFO: HandleRequisitionAction: Requisition %d rejected by admin %d. Reason: %s. Status -> %s\n", requisitionID, adminID, payload.Reason, requisition.Status)
 	}
@@ -502,4 +510,3 @@ func HandleRequisitionAction(w http.ResponseWriter, r *http.Request) {
 	RespondWithJSON(w, http.StatusOK, requisition)
 	log.Printf("INFO: HandleRequisitionAction: Successfully processed action '%s' for requisition ID %d by admin %d\n", payload.Action, requisitionID, adminID)
 }
-

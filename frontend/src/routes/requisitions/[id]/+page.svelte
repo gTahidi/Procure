@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import type { PageData } from './$types';
 	import { user } from '$lib/store';
-	import { getAccessTokenSilently } from '$lib/authService';
+	import { getAccessToken } from '$lib/authService';
 	import { PUBLIC_VITE_API_BASE_URL } from '$env/static/public';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -35,7 +35,7 @@
 		if (!data.requisition?.id) return;
 		isProcessing = true;
 		apiError = '';
-		const token = await getAccessTokenSilently();
+		const token = getAccessToken();
 		if (!token) {
 			apiError = 'Authentication error. Please log in again.';
 			isProcessing = false;
